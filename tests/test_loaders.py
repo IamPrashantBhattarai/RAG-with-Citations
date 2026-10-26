@@ -91,7 +91,7 @@ def test_empty_text_file_is_skipped(tmp_path):
 
 
 def test_clean_text_normalizes_characters_and_keeps_paragraphs():
-    raw = "﻿The ﬁrst line   \r\nnext​ line\r\n\r\n\r\n\r\nNew para\x00graph end"
+    raw = "\ufeffThe \ufb01rst\u00a0line   \r\nnext\u200b line\r\n\r\n\r\n\r\nNew para\x00graph\u2028end"
     assert clean_text(raw) == "The first line\nnext line\n\nNew paragraph\nend"
 
 
@@ -139,6 +139,30 @@ def test_headers_kept_when_document_too_short_to_tell():
 def test_bare_page_numbers_removed_only_at_page_edges():
     [text] = clean_pdf_pages(["12\nItems:\n42\nmore items\nend.\nxiv"])
     assert text.split() == ["Items:", "42", "more", "items", "end."]
+
+
+def test_symbol_font_bullets_become_bullets():
+    assert clean_text(chr(0xF0B7) + " Validate forms\n" + chr(0xF0A7) + " Use DOM") == (
+        "• Validate forms\n• Use DOM"
+    )
+
+
+def test_line_ending_mid_sentence_is_never_split_off():
+    # Real table cells from a syllabus PDF: "HTML5" / "XHTML" were becoming
+    # standalone paragraphs, which the chunker then took for ALL-CAPS headings.
+    lines = [
+        "2.5. HTML Layouts: Using Tables, DIV & Span Tags, HTML Style Sheets,",
+        "HTML Entities, Events and many other things that fill a whole line.",
+        "• Understand XHTML and",
+        "HTML5",
+        "• Differentiate HTML from",
+        "XHTML",
+        "Unit III: XHTML & HTML5 (4 hr)",
+    ]
+    paragraphs = _infer_paragraphs(lines).split("\n\n")
+    assert "• Understand XHTML and\nHTML5" in paragraphs
+    assert "• Differentiate HTML from\nXHTML" in paragraphs
+    assert "HTML5" not in paragraphs and "XHTML" not in paragraphs
 
 
 def test_hyphenated_line_breaks_rejoined():

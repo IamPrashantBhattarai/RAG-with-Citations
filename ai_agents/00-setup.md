@@ -43,7 +43,8 @@ Every value (model names, chunk size, top-k, score threshold, DB path) is read f
 
 - `.env.example` committed as a template; real `.env` (with `ANTHROPIC_API_KEY`) is git-ignored.
 - `.gitignore` also excludes `.venv/`, `.chroma/` (the vector DB), and `data/*` (user documents).
-- `git init`, files staged (no commit yet).
+- Hosted on GitHub: `IamPrashantBhattarai/RAG-with-Citations`, branch `main`. Before each push, the files to be committed are scanned for API keys (`sk-ant-…`), and `.env`, `.chroma/` and `data/*` are confirmed ignored.
+- `.vscode/settings.json` is committed with one setting (`python.terminal.useEnvFile`) so VS Code terminals load `.env`.
 
 **Why:** API keys and private documents must never end up in git history.
 

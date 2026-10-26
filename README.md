@@ -28,8 +28,8 @@ pytest
 | `citerag/loaders.py` | Load PDF/TXT/MD into page records |
 | `citerag/chunker.py` | Split pages into chunks with stable IDs |
 | `citerag/store.py` | Embeddings + ChromaDB |
-| `citerag/retriever.py` | Top-k retrieval |
-| `citerag/generator.py` | Claude answer with `[n]` citations |
+| `citerag/retriever.py` | Hybrid retrieval (dense + BM25 keyword search, fused) with a "not in the documents" gate |
+| `citerag/generator.py` | Cited answers with Claude (native Citations: exact quotes per claim) |
 | `citerag/citations.py` | Citation parsing + validation |
 | `app.py` | Streamlit UI |
 | `eval/` | Evaluation question set + scoring |

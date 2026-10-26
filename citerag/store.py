@@ -134,7 +134,8 @@ class Hit:
     section: str | None
     start_char: int
     end_char: int
-    score: float  # cosine similarity, higher is closer
+    score: float  # cosine similarity here; the retriever replaces it with its final score
+    scores: dict[str, float] = field(default_factory=dict)  # per-stage scores (debugging)
 
 
 @dataclass
@@ -168,6 +169,7 @@ class Store:
         if reset:
             self._drop()
         self._col = self._open()
+        self.version = 0  # bumped on every write, so caches (keyword index) know to rebuild
 
     def _open(self):
         col = self._client.get_or_create_collection(
@@ -213,6 +215,7 @@ class Store:
             self._upsert(chunks, vectors, fingerprint)
             (report.updated if old_ids else report.added).append(source)
             report.chunks += len(chunks)
+            self.version += 1
             log.info("%s %s (%d chunks)", "updated" if old_ids else "added", source, len(chunks))
 
         if prune:
@@ -226,12 +229,14 @@ class Store:
         ids = self._col.get(where={"source": source}, include=[])["ids"]
         if ids:
             self._col.delete(ids=ids)
+            self.version += 1
         return len(ids)
 
     def reset(self) -> None:
         """Drop every vector (and the model lock) and start an empty collection."""
         self._drop()
         self._col = self._open()
+        self.version += 1
 
     def _drop(self) -> None:
         if self._name in {c.name for c in self._client.list_collections()}:
@@ -280,6 +285,25 @@ class Store:
             for cid, doc, meta, dist in zip(
                 res["ids"][0], res["documents"][0], res["metadatas"][0], res["distances"][0]
             )
+        ]
+
+    def get(self, ids: list[str]) -> list[Hit]:
+        """Chunks by id, in the order asked (unknown ids are skipped)."""
+        if not ids:
+            return []
+        res = self._col.get(ids=ids, include=["documents", "metadatas"])
+        found = {
+            cid: _hit(cid, doc, meta, 1.0)
+            for cid, doc, meta in zip(res["ids"], res["documents"], res["metadatas"])
+        }
+        return [found[i] for i in ids if i in found]
+
+    def all_chunks(self) -> list[Hit]:
+        """Every stored chunk (score 0), e.g. to build the keyword index."""
+        res = self._col.get(include=["documents", "metadatas"])
+        return [
+            _hit(cid, doc, meta, 1.0)
+            for cid, doc, meta in zip(res["ids"], res["documents"], res["metadatas"])
         ]
 
     def count(self) -> int:
@@ -336,7 +360,8 @@ def _main() -> None:
     args = parser.parse_args()
     # Our progress at INFO; third-party libraries (HTTP calls etc.) only on warnings.
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
-    logging.getLogger("citerag").setLevel(logging.INFO)
+    for name in ("citerag", "__main__"):  # "__main__" when run with python -m
+        logging.getLogger(name).setLevel(logging.INFO)
 
     store = Store(reset=args.reset)
     if args.reset:

@@ -150,12 +150,17 @@ def load_paths(paths: Iterable[str | Path]) -> list[Page]:
 
 # -- cleanup -----------------------------------------------------------------
 
-_CHAR_MAP = str.maketrans(
+_CHAR_MAP = str.maketrans(  # escapes, not literal characters: editors mangle invisibles
     {
-        "\r": "\n", " ": "\n", " ": "\n\n", "\f": "\n\n",
-        " ": " ", " ": " ", " ": " ", "　": " ",
-        "​": None, "‌": None, "‍": None, "⁠": None, "﻿": None,
-        "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "st", "ﬆ": "st",
+        "\r": "\n", "\u2028": "\n", "\u2029": "\n\n", "\f": "\n\n",
+        "\u00a0": " ", "\u2007": " ", "\u202f": " ", "\u3000": " ",
+        "\u200b": None, "\u200c": None, "\u200d": None, "\u2060": None, "\ufeff": None,
+        "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl",
+        "\ufb05": "st", "\ufb06": "st",
+        # Bullets drawn with the Symbol/Wingdings fonts (Word exports) arrive as
+        # Private Use Area code points; the chunker recognises "\u2022" as a list item.
+        "\uf0b7": "\u2022", "\uf0a7": "\u2022", "\uf0a8": "\u2022", "\uf06c": "\u2022",
+        "\uf06e": "\u2022", "\uf076": "\u2022", "\uf0d8": "\u2022", "\uf0fc": "\u2022",
     }
 )
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0e-\x1f\x7f]")
@@ -163,7 +168,7 @@ _TRAILING_WS_RE = re.compile(r"[ \t]+\n")
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
 _SPACE_RUN_RE = re.compile(r"[ \t]{2,}")
 # "informa-\ntion" -> "information"; also a soft hyphen at a line end.
-_HYPHEN_BREAK_RE = re.compile(r"(?<=[A-Za-z])(?:-|­)\n[ \t]*(?=[a-z])")
+_HYPHEN_BREAK_RE = re.compile(r"(?<=[A-Za-z])(?:-|\u00ad)\n[ \t]*(?=[a-z])")
 _PAGE_NUMBER_RE = re.compile(
     r"(?:page\s*)?\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?|[-–—]\s*\d{1,4}\s*[-–—]"
     r"|(?=[ivxlc])(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})",  # roman numerals up to 99
@@ -171,6 +176,12 @@ _PAGE_NUMBER_RE = re.compile(
 )
 _SENTENCE_END = ".!?:"
 _CLOSERS = "\"'”’)]"
+# A line ending like this is mid-sentence, so the next line always continues it.
+_DANGLING_RE = re.compile(
+    r"(?:[,;/&(–-]|\b(?:a|an|the|and|or|nor|but|of|to|in|on|at|by|for|from|with|as|into"
+    r"|onto|than|that|which|who|whose|via|vs|versus|between|including|such|its|their|our))$",
+    re.IGNORECASE,
+)
 
 
 def clean_text(text: str) -> str:
@@ -232,8 +243,10 @@ def _infer_paragraphs(lines: list[str]) -> str:
 
     A line that ends a sentence while stopping well short of the page's text
     width ends a paragraph. A short line without end punctuation (a likely
-    heading or list entry) gets a paragraph of its own. A line followed by a
-    lowercase start is always continued.
+    heading or list entry) gets a paragraph of its own. A line is always
+    continued when the next one starts in lowercase or when it ends on a word
+    or mark that can't end a sentence ("and", "of", ","), e.g. a table cell
+    "Understand XHTML and" / "HTML5" — otherwise "HTML5" would look like a heading.
     """
     lines = [line for line in lines if line]
     if len(lines) < 3:
@@ -249,7 +262,7 @@ def _infer_paragraphs(lines: list[str]) -> str:
 
     out = [lines[0]]
     for prev, line in zip(lines, lines[1:]):
-        continues = line[0].islower()
+        continues = line[0].islower() or bool(_DANGLING_RE.search(prev))
         ends_sentence = prev.rstrip(_CLOSERS)[-1:] in _SENTENCE_END
         para_end = ends_sentence and is_short(prev, 0.85)
         brk = not continues and (para_end or is_standalone(prev) or is_standalone(line))

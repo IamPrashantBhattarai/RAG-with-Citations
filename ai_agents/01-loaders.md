@@ -1,6 +1,6 @@
 # Phase 1 — Document Loaders
 
-**Status:** ✅ Done (2026-10-26) · Code: `citerag/loaders.py` · Tests: `tests/test_loaders.py` (18 passing)
+**Status:** ✅ Done (2026-10-26) · Code: `citerag/loaders.py` · Tests: `tests/test_loaders.py` (20 passing)
 
 ## Goal
 
@@ -58,7 +58,7 @@ Checked first against real PDFs (Apple license agreements, 4 and 132 pages) to s
 - **Paragraph breaks are inferred** (only when pypdf gave no blank lines on that page):
   - a line that ends a sentence (`. ! ? :`) and stops short of the page's text width (under 85% of the 90th-percentile line length) ends a paragraph;
   - a short line (under 60% of the width) without end punctuation, likely a heading or list entry, gets its own paragraph;
-  - a line followed by one starting in lowercase is always continued.
+  - a line is always continued when the next one starts in lowercase, **or when it ends on a word or mark that can't end a sentence** (`and`, `of`, `from`, `the`, `,` …). *Added 2026-10-26 after the first real PDF:* see below.
 
   *Why this matters:* the chunker only recognises a heading when it stands as its own paragraph, and prefers to cut chunks at paragraph ends. Without this step a whole PDF page is one paragraph, so section names never reach the chunk headers. On the real agreement, headings like `2. Content and Third-Party Integrations.` now come out as their own paragraphs.
 
@@ -78,16 +78,26 @@ The tests build tiny PDFs in plain PDF syntax (`make_pdf` helper), so they need 
 - one record per page, true page numbers kept after a blank page, the scanned-PDF warning
 - header/footer and page-number removal, and headers kept in documents too short to judge
 - hyphen rejoining, paragraph and heading inference
-- character cleanup, the cp1252 fallback, empty files
+- character cleanup (including Symbol-font bullets), the cp1252 fallback, empty files
+- a line ending mid-sentence is never split off (real syllabus table cells)
 - password-protected, corrupt and unsupported files
 - folder loading (sorting, relative sources, skipping hidden and broken files), mixed file and folder input
 - an end-to-end check: PDF → loader → chunker gives correct `page_start`/`page_end`
 
 **Lesson from a failing test:** the first version of the test PDFs used the same sentence on every page with only the page number changed. The header detector ignores digits, so it treated those body lines as a running header and deleted them. The detector was right; the data was unrealistic. Test pages now use different words.
 
+## Fixes after the first real document (2026-10-26)
+
+Indexing the user's syllabus PDF (`bsccsit-syllabus-webtechnology.pdf`, 5 pages) showed two problems:
+
+1. **Bullets came through as an invisible character (U+F0B7).** Word documents draw bullets with the Symbol/Wingdings fonts, which extract as Private Use Area code points. The 8 common ones are now mapped to `•`, which the chunker already treats as a list item.
+2. **False section headings.** In a table cell `• Understand XHTML and` / `HTML5`, the paragraph-inference rule made the short line `HTML5` its own paragraph, and the chunker then took that short all-caps paragraph for a section heading. Every following chunk was labelled `[XHTML]`, which is misleading in both the embedding header and the citation. *Fix:* a line ending in a connecting word (`and`, `from`, `of`…) or a comma always continues onto the next line, because a sentence can't end there. After the fix, all chunks carry the document's real heading.
+
+**Lesson: invisible characters in source code.** The character table first stored characters like U+2028 (line separator) as literal invisible characters. During editing, two of them were silently stripped, leaving empty keys and crashing at import. The table now uses ASCII escape codes (`"\u2028"`), which can't be lost or mistaken. The same was done for the test that uses them.
+
 ## Known limitations
 - No OCR. Scanned PDFs are reported, not read.
 - Multi-column PDFs depend on pypdf's reading order, which can interleave columns.
-- Tables come out as plain lines of text.
+- Tables come out as plain lines of text; side-by-side columns (e.g. a syllabus "Objectives | Contents" table) get interleaved.
 - A word hyphenated across a **page** break is joined by the chunker with a space (`informa- tion`).
 - Very short pages whose lines are nearly identical (forms, templates) can lose lines to header detection.

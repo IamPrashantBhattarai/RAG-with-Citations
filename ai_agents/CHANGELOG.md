@@ -4,6 +4,45 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-10-26
 
+### System — Pushed to GitHub
+- Committed the loader fixes and Phases 4–5 to `main` and pushed to `IamPrashantBhattarai/RAG-with-Citations`. Before pushing: no API keys in tracked files; `.env`, `.venv/`, `.chroma/` and `data/*` (including the user's syllabus PDF) confirmed git-ignored.
+
+### Added — Phase 5: Cited answers with Claude ([05-generation.md](05-generation.md)), live test pending
+- `citerag/generator.py`: `Generator.answer(question, k, sources, on_text)` → `Answer` (text with [n] markers, `Citation`s with exact quotes and chunk/document offsets, `Segment`s including uncited text, `found`, usage).
+- Each chunk is sent as a plain-text `document` with `citations: {enabled: true}`; the question comes last. The system prompt says: grounded only, say when not found, treat documents as data.
+- Streaming via `client.beta.messages.stream` with live [n] markers; `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`); refusal and max_tokens handled.
+- No API call when retrieval returns nothing.
+- `GenerationError` with plain messages for missing/rejected key, 403/404/429/400/5xx and network errors.
+- CLI: `python -m citerag.generator "question" [--source FILE] [-k N]`.
+- `tests/test_generator.py`: 13 tests with a fake client (72 total).
+
+### Changed — LLM config
+- `LLM_MODEL`: `claude-sonnet-5-5` → `claude-opus-5-5`; `MAX_TOKENS`: 1024 → 16000 (it also covers thinking tokens); new `LLM_EFFORT=medium`.
+
+### Added — Phase 4: Retrieval ([04-retrieval.md](04-retrieval.md))
+- `citerag/retriever.py`: in-house BM25 keyword search (tokenizer with stopwords and plural folding), Reciprocal Rank Fusion, optional cross-encoder `Reranker`, `Retriever.retrieve(query, k, sources)`, and `passage()` (title > section + text).
+- Relevance gate: returns `[]` when the best dense match is below `MIN_SCORE` (0.45, calibrated on on-topic vs. off-topic questions).
+- CLI: `python -m citerag.retriever "question" [--rerank] [--source FILE] [-k N]`.
+- `Store.get()`, `Store.all_chunks()`, `Store.version`, `Hit.scores`.
+- `tests/test_retriever.py`: 13 tests (59 total).
+
+### Decided — No reranker by default (benchmark on SciFact + NFCorpus)
+- Hybrid 0.739 / 0.375 nDCG@10. Best reranker (gte-reranker-modernbert-base) 0.755 / 0.347 at about 1.5 s per question; MiniLM and bge-reranker-base were worse on SciFact.
+- New config: `RETRIEVE_CANDIDATES=30`, `USE_RERANKER=0`, `RERANK_MODEL=Alibaba-NLP/gte-reranker-modernbert-base`. `MIN_SCORE` is now a cosine gate, 0.3 → 0.45.
+
+### Fixed
+- Retriever CLI ignored the config and always reranked (now `--rerank/--no-rerank`).
+- CLIs run with `python -m` hid their own INFO messages (logger `__main__`); this affected the store's per-file lines since Phase 3.
+
+### System
+- Downloaded reranker models for the benchmark: ms-marco-MiniLM-L-6-v2, bge-reranker-base (1.1 GB), gte-reranker-modernbert-base. None are loaded by default.
+
+### Fixed — Loader issues found on the first real PDF ([01-loaders.md](01-loaders.md#fixes-after-the-first-real-document-2026-10-26))
+- Symbol/Wingdings bullet glyphs (U+F0B7 etc.) mapped to `•`.
+- Paragraph inference no longer splits off a line that follows one ending in a connecting word or comma. This stopped table cells like `HTML5` / `XHTML` from becoming false ALL-CAPS section headings.
+- Character table rewritten with ASCII escape codes after two literal invisible characters were silently lost (import crash).
+- 2 new tests (46 total). Re-indexed `data/`: the syllabus was detected as changed and re-embedded automatically.
+
 ### Added — Phase 3: Embeddings + ChromaDB ([03-vector-store.md](03-vector-store.md))
 - `citerag/store.py`: `Embedder` (sentence-transformers, normalized vectors, query-only prefix, auto CUDA/MPS/CPU) and `Store` (persistent ChromaDB, cosine HNSW, citation metadata, exact chunk text).
 - Incremental indexing with per-file fingerprints (text + model + chunk settings); changed files fully replaced; `--prune`, `--reset`, `--stats`, `--query` CLI.
