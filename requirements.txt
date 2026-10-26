@@ -1,0 +1,7 @@
+anthropic>=0.40
+chromadb>=1.0
+sentence-transformers>=3.0
+pypdf>=5.0
+streamlit>=1.40
+python-dotenv>=1.0
+pytest>=8.0
