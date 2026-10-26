@@ -17,14 +17,18 @@ LLM_MODEL = os.getenv("CITERAG_LLM_MODEL", "claude-sonnet-5-5")
 MAX_TOKENS = int(os.getenv("CITERAG_MAX_TOKENS", "1024"))
 
 # Embeddings / vector store
-# bge-small reads up to 512 tokens (all-MiniLM-L6-v2 silently truncates at 256).
-EMBED_MODEL = os.getenv("CITERAG_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+# bge-base won a 5-model benchmark (see ai_agents/03-vector-store.md). It reads up
+# to 512 tokens and shares bge-small's tokenizer (all-MiniLM-L6-v2 truncates at 256).
+EMBED_MODEL = os.getenv("CITERAG_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
 EMBED_MAX_TOKENS = int(os.getenv("CITERAG_EMBED_MAX_TOKENS", "512"))
 # bge models expect this prefix on queries (not on documents).
 EMBED_QUERY_PREFIX = os.getenv(
     "CITERAG_EMBED_QUERY_PREFIX",
     "Represent this sentence for searching relevant passages: ",
 )
+EMBED_DOC_PREFIX = os.getenv("CITERAG_EMBED_DOC_PREFIX", "")
+EMBED_DEVICE = os.getenv("CITERAG_EMBED_DEVICE") or None  # None = cuda > mps > cpu
+EMBED_BATCH_SIZE = int(os.getenv("CITERAG_EMBED_BATCH_SIZE", "32"))
 COLLECTION_NAME = os.getenv("CITERAG_COLLECTION", "citerag")
 
 # Chunking — all sizes are measured in the embedding model's own tokens.

@@ -8,6 +8,8 @@ Split documents into pieces that (a) each carry one coherent idea so the embeddi
 
 ## Step 1 — Switched the embedding model
 
+> **Update (Phase 3):** the default is now `bge-base-en-v1.5`, chosen by benchmark. It shares bge-small's tokenizer and 512-token limit, so everything below still applies. See [03-vector-store.md](03-vector-store.md).
+
 | | `all-MiniLM-L6-v2` (old plan) | `BAAI/bge-small-en-v1.5` (chosen) |
 |---|---|---|
 | Max input the model actually reads | **256 tokens** | **512 tokens** |

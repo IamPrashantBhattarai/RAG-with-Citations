@@ -4,6 +4,19 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-10-26
 
+### Added — Phase 3: Embeddings + ChromaDB ([03-vector-store.md](03-vector-store.md))
+- `citerag/store.py`: `Embedder` (sentence-transformers, normalized vectors, query-only prefix, auto CUDA/MPS/CPU) and `Store` (persistent ChromaDB, cosine HNSW, citation metadata, exact chunk text).
+- Incremental indexing with per-file fingerprints (text + model + chunk settings); changed files fully replaced; `--prune`, `--reset`, `--stats`, `--query` CLI.
+- `EmbeddingMismatchError`: an index built with one model can't be opened with another; `Store(reset=True)` to rebuild.
+- `tests/test_store.py`: 12 tests with an offline fake embedder.
+
+### Changed — Embedding model
+- `EMBED_MODEL`: `BAAI/bge-small-en-v1.5` → `BAAI/bge-base-en-v1.5`, chosen by benchmark on BEIR SciFact + NFCorpus (bge-base: 0.740 / 0.374 nDCG@10 vs. bge-small 0.713 / 0.343). Same tokenizer, so chunk sizes are unchanged.
+- New settings: `EMBED_DOC_PREFIX`, `EMBED_DEVICE`, `EMBED_BATCH_SIZE`.
+
+### System
+- Downloaded models to the Hugging Face cache for the benchmark: bge-base, arctic-embed-m-v1.5, gte-modernbert-base, Qwen3-Embedding-0.6B (~2.5 GB total; only bge-base is used).
+
 ### Added — Phase 1: Document loaders ([01-loaders.md](01-loaders.md))
 - `citerag/loaders.py`: `load_file`, `load_pdf`, `load_text`, `load_dir`, `load_paths`, `LoaderError`.
 - Text cleanup for all files (line endings, BOM, no-break spaces, ligatures, zero-width/control characters, whitespace). UTF-8 with a cp1252 fallback.
