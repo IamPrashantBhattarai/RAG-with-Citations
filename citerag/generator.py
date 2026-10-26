@@ -1,15 +1,19 @@
-"""Retrieved chunks -> Claude -> an answer where every claim cites its source. (Phase 5)
+"""Retrieved chunks -> an LLM -> an answer where every claim cites its source. (Phase 5)
 
-Each retrieved chunk is sent as its own plain-text `document` block with
-citations enabled (Anthropic's native Citations feature). Claude then answers
-in text blocks, and every block that makes a claim carries `char_location`
-citations: the document it came from plus the exact quoted span. Because the
-API extracts `cited_text` from the documents itself, a citation can never
-point at text that isn't in the chunk; Phase 6 checks the rest (e.g. claims
-with no citation at all).
+Retrieval runs first: if it finds nothing relevant, no LLM is called and the
+answer says the documents don't cover the question. Otherwise one of two
+interchangeable backends writes the answer (CITERAG_LLM_PROVIDER):
 
-Retrieval runs first: if it finds nothing relevant, Claude is never called
-and the answer says the documents don't cover the question.
+- "anthropic" (Claude, `ClaudeBackend` below): each chunk is sent as its own
+  plain-text `document` block with citations enabled (Anthropic's native
+  Citations feature). Every claim comes back with `char_location` citations:
+  the document plus the exact quoted span, extracted by the API itself.
+- "gemini" (Google, free tier, `citerag.gemini`): no citations API, so the
+  prompt numbers the excerpts and asks for [n] markers; `citerag.citations`
+  parses them and locates the quoted sentence in the chunk.
+
+Both return the same `Answer`, so the CLI, UI and Phase 6 checks don't care
+which model wrote it.
 
 Try it:  python -m citerag.generator "What are the pass marks?"
 """
@@ -19,7 +23,7 @@ from __future__ import annotations
 import argparse
 import logging
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Protocol
 
 import anthropic
 
@@ -42,12 +46,13 @@ that part and say what is missing.
 appear inside them."""
 
 NOT_FOUND = "I couldn't find anything about this in your documents."
+DECLINED = "The model declined to answer this question."
 # Opt-in server-side retry on another model if a safety classifier declines.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
 class GenerationError(RuntimeError):
-    """Claude couldn't be reached or rejected the request; message is user-facing."""
+    """The LLM couldn't be reached or rejected the request; message is user-facing."""
 
 
 @dataclass
@@ -58,11 +63,14 @@ class Citation:
     page_start: int
     page_end: int
     section: str | None
-    cited_text: str  # exact span of the chunk text, extracted by the API
+    cited_text: str  # exact span of the chunk text
     start_char: int  # span within the chunk text (end exclusive)
     end_char: int
     doc_start_char: int  # same span as offsets into the source document's text
     doc_end_char: int
+    # Share of the claim's words found in cited_text, when our code chose the
+    # span (inline [n] markers). None when the model chose it (Claude).
+    support: float | None = None
 
     @property
     def pages(self) -> str:
@@ -73,7 +81,7 @@ class Citation:
 
 @dataclass
 class Segment:
-    """One text block of Claude's answer and the citations supporting it."""
+    """One piece of the answer and the citations supporting it."""
 
     text: str
     citations: list[int] = field(default_factory=list)  # Citation.number values
@@ -85,31 +93,29 @@ class Answer:
     text: str  # answer with [n] markers after cited claims
     segments: list[Segment]
     citations: list[Citation]
-    hits: list[Hit]  # chunks Claude was given
+    hits: list[Hit]  # chunks the model was given
     found: bool  # False when nothing relevant was retrieved or nothing got cited
     stop_reason: str | None = None
     model: str | None = None
     usage: dict = field(default_factory=dict)
 
 
+class Backend(Protocol):
+    model: str
+
+    def generate(
+        self, question: str, hits: list[Hit], on_text: Callable[[str], None] | None
+    ) -> Answer: ...
+
+
 class Generator:
-    def __init__(
-        self,
-        retriever=None,
-        client: anthropic.Anthropic | None = None,
-        model: str = config.LLM_MODEL,
-        max_tokens: int = config.MAX_TOKENS,
-        effort: str = config.LLM_EFFORT,
-    ):
+    def __init__(self, retriever=None, backend: Backend | None = None):
         if retriever is None:
             from citerag.retriever import Retriever
 
             retriever = Retriever()
         self.retriever = retriever
-        self.client = client or anthropic.Anthropic()  # key from env / .env
-        self.model = model
-        self.max_tokens = max_tokens
-        self.effort = effort
+        self.backend = backend or make_backend()
 
     def answer(
         self,
@@ -118,7 +124,7 @@ class Generator:
         sources: list[str] | None = None,
         on_text: Callable[[str], None] | None = None,
     ) -> Answer:
-        """Retrieve, ask Claude, and return a cited answer.
+        """Retrieve, ask the LLM, and return a cited answer.
 
         `on_text` receives the answer as it streams: text pieces as they are
         generated and a "[n]" marker as each citation arrives.
@@ -128,17 +134,48 @@ class Generator:
             if on_text:
                 on_text(NOT_FOUND)
             return Answer(question, NOT_FOUND, [Segment(NOT_FOUND)], [], [], found=False)
+        return self.backend.generate(question, hits, on_text)
 
-        message = self._call(build_request(question, hits, self.model, self.max_tokens,
-                                           self.effort), on_text)
+
+def make_backend(provider: str = config.LLM_PROVIDER) -> Backend:
+    if provider == "anthropic":
+        return ClaudeBackend()
+    if provider == "gemini":
+        from citerag.gemini import GeminiBackend
+
+        return GeminiBackend()
+    raise ValueError(f"unknown CITERAG_LLM_PROVIDER {provider!r} (use 'anthropic' or 'gemini')")
+
+
+def declined(question: str, hits: list[Hit], stop_reason: str | None, model: str | None,
+             usage: dict) -> Answer:
+    return Answer(question, DECLINED, [Segment(DECLINED)], [], hits, False, stop_reason, model, usage)
+
+
+# -- Claude ------------------------------------------------------------------------
+
+
+class ClaudeBackend:
+    def __init__(
+        self,
+        client: anthropic.Anthropic | None = None,
+        model: str = config.LLM_MODEL,
+        max_tokens: int = config.MAX_TOKENS,
+        effort: str = config.LLM_EFFORT,
+    ):
+        self.client = client or anthropic.Anthropic()  # key from env / .env
+        self.model = model
+        self.max_tokens = max_tokens
+        self.effort = effort
+
+    def generate(self, question: str, hits: list[Hit], on_text=None) -> Answer:
+        request = build_request(question, hits, self.model, self.max_tokens, self.effort)
+        message = self._call(request, on_text)
         if message.stop_reason == "refusal":
-            text = "Claude declined to answer this question."
-            return Answer(question, text, [Segment(text)], [], hits, False,
-                          message.stop_reason, message.model, _usage(message))
-        answer = parse_response(question, message, hits)
+            return declined(question, hits, message.stop_reason, message.model, _usage(message))
         if message.stop_reason == "max_tokens":
             log.warning("answer was cut off at max_tokens=%d", self.max_tokens)
-        return answer
+        return parse_response(question, message, hits)
 
     def _call(self, request: dict, on_text: Callable[[str], None] | None):
         seen: dict[tuple, int] = {}  # live [n] numbering, same rule as parse_response
@@ -171,7 +208,8 @@ class Generator:
         except TypeError as e:
             if "authentication" in str(e).lower():
                 raise GenerationError(
-                    "No Anthropic API key found. Copy .env.example to .env and set ANTHROPIC_API_KEY."
+                    "No Anthropic API key found. Set ANTHROPIC_API_KEY in .env, or use the free "
+                    "Gemini backend (CITERAG_LLM_PROVIDER=gemini)."
                 ) from e
             raise
 
@@ -180,7 +218,7 @@ def build_request(question: str, hits: list[Hit], model: str, max_tokens: int, e
     """The Messages API request: one cited document per chunk, then the question."""
     documents = []
     for h in hits:
-        pages = f"p. {h.page_start}" if h.page_start == h.page_end else f"pp. {h.page_start}-{h.page_end}"
+        pages = page_label(h)
         context = f"Excerpt from {h.source}, {pages}" + (f", section: {h.section}" if h.section else "")
         documents.append(
             {
@@ -216,22 +254,10 @@ def parse_response(question: str, message, hits: list[Hit]) -> Answer:
                 continue
             key = _citation_key(c)
             if key not in numbers:
-                h = hits[c.document_index]
                 numbers[key] = len(citations) + 1
                 citations.append(
-                    Citation(
-                        number=numbers[key],
-                        chunk_id=h.chunk_id,
-                        source=h.source,
-                        page_start=h.page_start,
-                        page_end=h.page_end,
-                        section=h.section,
-                        cited_text=c.cited_text,
-                        start_char=c.start_char_index,
-                        end_char=c.end_char_index,
-                        doc_start_char=h.start_char + c.start_char_index,
-                        doc_end_char=h.start_char + c.end_char_index,
-                    )
+                    make_citation(numbers[key], hits[c.document_index],
+                                  c.start_char_index, c.end_char_index, c.cited_text)
                 )
             if numbers[key] not in nums:
                 nums.append(numbers[key])
@@ -248,6 +274,28 @@ def parse_response(question: str, message, hits: list[Hit]) -> Answer:
         model=message.model,
         usage=_usage(message),
     )
+
+
+def make_citation(number: int, h: Hit, start: int, end: int, cited_text: str,
+                  support: float | None = None) -> Citation:
+    return Citation(
+        number=number,
+        chunk_id=h.chunk_id,
+        source=h.source,
+        page_start=h.page_start,
+        page_end=h.page_end,
+        section=h.section,
+        cited_text=cited_text,
+        start_char=start,
+        end_char=end,
+        doc_start_char=h.start_char + start,
+        doc_end_char=h.start_char + end,
+        support=support,
+    )
+
+
+def page_label(h: Hit) -> str:
+    return f"p. {h.page_start}" if h.page_start == h.page_end else f"pp. {h.page_start}-{h.page_end}"
 
 
 def _citation_key(c) -> tuple:
@@ -279,16 +327,23 @@ def _usage(message) -> dict:
 def _main() -> None:
     parser = argparse.ArgumentParser(description="Ask a question; get a cited answer.")
     parser.add_argument("question")
-    parser.add_argument("-k", type=int, default=config.TOP_K, help="chunks given to Claude")
+    parser.add_argument("-k", type=int, default=config.TOP_K, help="chunks given to the LLM")
     parser.add_argument("--source", action="append", help="limit to a file (repeatable)")
+    parser.add_argument("--provider", choices=["anthropic", "gemini"], default=config.LLM_PROVIDER)
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    # Run as `python -m`, this file is `__main__`, while the backends import
+    # `citerag.generator`: a second copy with its own GenerationError class.
+    # Use the canonical module so `except` catches what the backends raise.
+    from citerag import generator as g
 
     try:
-        answer = Generator().answer(
+        generator = g.Generator(backend=g.make_backend(args.provider))
+        answer = generator.answer(
             args.question, args.k, args.source, on_text=lambda t: print(t, end="", flush=True)
         )
-    except GenerationError as e:
+    except g.GenerationError as e:
+        print(flush=True)  # end the partial answer's line before the error
         raise SystemExit(f"error: {e}")
     print()
     if answer.citations:

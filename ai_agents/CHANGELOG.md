@@ -5,6 +5,27 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 ## 2026-10-26
 
 ### System — Pushed to GitHub
+- Committed the free Gemini backend, the Phase 5 live-test fixes and the build log to `main`. Before pushing: no Anthropic (`sk-ant-…`) or Google (`AIza…`) keys in tracked files; `.env` (which now holds the Gemini key) confirmed git-ignored.
+
+### Done — Phase 5 live-tested with free Gemini ([05-generation.md](05-generation.md#step-7--live-test-users-syllabus-free-gemini-key))
+- 4/4 test questions correct, with precise citations; the off-topic question made no API call.
+- Default Gemini model `gemini-3.8-flash` → `gemini-3.6-flash` (3.8 returned 503 "high demand" to every free-tier request); fallback `gemini-3.5-flash-lite`.
+- Fallback to the next model on 503/429/timeouts, only before any text is shown; mid-answer failures say so. SDK retries bounded (2 attempts, waits ≤ 8 s) plus a 30 s request timeout, replacing a silent >5-minute retry loop.
+- Fixed: the CLI didn't catch backend errors under `python -m` (module loaded twice → two `GenerationError` classes).
+- Fixed: tables produced one huge shared quote. `locate_quote` now considers lines inside long "sentences", picks the shortest near-best span, and trims trailing section numbers.
+- Tests: 104 total.
+
+### Added — Free Gemini backend for Phase 5 ([05-generation.md](05-generation.md#step-6--a-free-backend-google-gemini-added-2026-10-26))
+- `citerag/gemini.py`: `GeminiBackend` (`gemini-3.8-flash`, free tier, thinking `low`, streaming, blocked-answer handling, plain messages for missing/rejected key, 404, 429 free-tier limit, 5xx, network).
+- `citerag/citations.py`: `InlineCitations` parses `[n]` markers while the answer streams, renumbers them, and finds the exact supporting sentence (`locate_quote`, with `Citation.support`); invalid markers are dropped and recorded.
+- `generator.py` refactored into `Generator` + backends (`ClaudeBackend`, `GeminiBackend`) behind `CITERAG_LLM_PROVIDER` / `--provider`; Claude behaviour unchanged.
+- Config: `LLM_PROVIDER` (default `anthropic`), `GEMINI_MODEL`, `GEMINI_THINKING`. The user's `.env` now sets `CITERAG_LLM_PROVIDER=gemini` plus a `GEMINI_API_KEY` placeholder.
+- Tests: `test_citations.py` (13), `test_gemini.py` (11); 96 total.
+
+### System
+- Installed `google-genai` 2.33.0 (added to requirements.txt). `tenacity` 9.2.1 → 9.1.4; dependency check clean.
+
+### System — Pushed to GitHub
 - Committed the loader fixes and Phases 4–5 to `main` and pushed to `IamPrashantBhattarai/RAG-with-Citations`. Before pushing: no API keys in tracked files; `.env`, `.venv/`, `.chroma/` and `data/*` (including the user's syllabus PDF) confirmed git-ignored.
 
 ### Added — Phase 5: Cited answers with Claude ([05-generation.md](05-generation.md)), live test pending

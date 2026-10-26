@@ -11,7 +11,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | [02-chunking.md](02-chunking.md) | Splitting pages into chunks for embedding | ✅ Done |
 | [03-vector-store.md](03-vector-store.md) | Embedding model benchmark, embeddings, ChromaDB index | ✅ Done |
 | [04-retrieval.md](04-retrieval.md) | Hybrid search (dense + BM25), fusion, reranker benchmark, relevance gate | ✅ Done |
-| [05-generation.md](05-generation.md) | Cited answers with Claude (native Citations feature) | 🟡 Live test pending |
+| [05-generation.md](05-generation.md) | Cited answers: Claude (native Citations) or free Gemini ([n] markers + quote location) | ✅ Done |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
 Upcoming: `06-citation-checks.md`, `07-ui.md`, `08-evaluation.md`.
@@ -25,7 +25,7 @@ Upcoming: `06-citation-checks.md`, `07-ui.md`, `08-evaluation.md`.
 | 2 | Chunking | ✅ |
 | 3 | Embeddings + ChromaDB | ✅ |
 | 4 | Retrieval | ✅ |
-| 5 | Cited answers with Claude | 🟡 |
+| 5 | Cited answers (Claude or free Gemini) | ✅ |
 | 6 | Citation validation | ⬜ |
 | 7 | Streamlit UI | ⬜ |
 | 8 | Evaluation + tuning | ⬜ |
@@ -39,3 +39,4 @@ Upcoming: `06-citation-checks.md`, `07-ui.md`, `08-evaluation.md`.
 5. **ChromaDB, cosine, our own vectors only**, with per-file fingerprints for incremental re-indexing and a model lock that refuses to mix vectors from different models. ([03-vector-store.md](03-vector-store.md))
 6. **Hybrid search (dense + BM25, RRF) with no reranker by default**: every reranker tested was slower and not better on both benchmarks; the reranker stays as an option. Questions whose best match is below cosine 0.45 return nothing. ([04-retrieval.md](04-retrieval.md))
 7. **Claude's native Citations feature, one plain-text document per chunk**, so every citation carries an API-extracted exact quote with character offsets; model `claude-opus-5-5` at effort `medium`, with server-side refusal fallback. ([05-generation.md](05-generation.md))
+8. **Free Gemini backend** (`gemini-3.6-flash`; 3.8 was overloaded on the free tier) behind `CITERAG_LLM_PROVIDER`, for testing without a paid key: `[n]` markers are parsed while streaming and mapped to exact quotes, so both backends return the same cited `Answer`. ([05-generation.md](05-generation.md))

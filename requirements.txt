@@ -1,4 +1,5 @@
 anthropic>=0.40
+google-genai>=2.33  # optional free Gemini backend
 chromadb>=1.0
 sentence-transformers>=3.0
 pypdf>=5.0

@@ -4,7 +4,7 @@ import anthropic
 import httpx2
 import pytest
 
-from citerag.generator import NOT_FOUND, GenerationError, Generator, build_request
+from citerag.generator import NOT_FOUND, ClaudeBackend, GenerationError, Generator, build_request, make_backend
 from citerag.store import Hit
 
 
@@ -76,8 +76,8 @@ class FakeRetriever:
 
 def make(content=(), hits=HITS, **client_kw):
     client = FakeClient(content, **client_kw)
-    return Generator(FakeRetriever(hits), client, model="claude-opus-5-5", max_tokens=16000,
-                     effort="medium"), client
+    backend = ClaudeBackend(client, model="claude-opus-5-5", max_tokens=16000, effort="medium")
+    return Generator(FakeRetriever(hits), backend), client
 
 
 ANSWER = [
@@ -142,6 +142,11 @@ def test_no_relevant_chunks_means_claude_is_not_called():
     gen, client = make(ANSWER, hits=[])
     a = gen.answer("How do I bake bread?")
     assert client.requests == [] and a.text == NOT_FOUND and not a.found
+
+
+def test_unknown_provider_is_a_clear_error():
+    with pytest.raises(ValueError, match="CITERAG_LLM_PROVIDER"):
+        make_backend("openai")
 
 
 def test_answer_without_citations_is_not_found():

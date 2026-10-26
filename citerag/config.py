@@ -12,12 +12,25 @@ DATA_DIR = ROOT_DIR / "data"
 DB_DIR = Path(os.getenv("CITERAG_DB_DIR", ROOT_DIR / ".chroma"))
 
 # LLM
+# "anthropic" (Claude, native citations) or "gemini" (Google, free tier).
+LLM_PROVIDER = os.getenv("CITERAG_LLM_PROVIDER", "anthropic")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 LLM_MODEL = os.getenv("CITERAG_LLM_MODEL", "claude-opus-5-5")
 # Includes thinking tokens (always on for Opus 5.5); only what's used is billed.
 MAX_TOKENS = int(os.getenv("CITERAG_MAX_TOKENS", "16000"))
 # low | medium | high | xhigh | max. Grounded Q&A over a few excerpts rarely needs more.
 LLM_EFFORT = os.getenv("CITERAG_LLM_EFFORT", "medium")
+# Gemini (key: GEMINI_API_KEY). Free tier: Google may use prompts to improve its products.
+# gemini-3.6-flash, not the newer 3.8: on 2026-10-26 3.8 returned "high demand" (503)
+# to every free-tier request we sent, while 3.6 answered in ~3 s (05-generation.md).
+GEMINI_MODEL = os.getenv("CITERAG_GEMINI_MODEL", "gemini-3.6-flash")
+GEMINI_THINKING = os.getenv("CITERAG_GEMINI_THINKING", "low")  # minimal | low | medium | high
+# Tried in order when the main model is overloaded (503), out of free quota (429) or times out.
+GEMINI_FALLBACK_MODELS = [
+    m.strip()
+    for m in os.getenv("CITERAG_GEMINI_FALLBACK_MODELS", "gemini-3.5-flash-lite").split(",")
+    if m.strip()
+]
 
 # Embeddings / vector store
 # bge-base won a 5-model benchmark (see ai_agents/03-vector-store.md). It reads up
