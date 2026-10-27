@@ -4,6 +4,10 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-10-27
 
+### Docs — README rewritten
+- `README.md` now explains what CiteRAG does, how the pipeline works (one row per stage, with its code file), requirements (Python 3.12, about 1.4 GB of local models, a Gemini or Anthropic key and the Gemini free-tier limits), setup with uv or pip, using the web app and the command line, the main settings, Phase 8 results, tests, project layout, privacy and limitations.
+- Setup now says Python 3.12 and shows the uv route used to build the project, replacing the older "Python 3.10+, venv" instructions.
+
 ### Changed — Citation checks tuned on real answers ([08-evaluation.md](08-evaluation.md#step-6--the-citation-checks-on-real-answers))
 - `citerag/validator.py`:
   - "Based on the provided documents," lead-ins and a leading "Yes," are removed before NLI (they dropped a correct statement's score from 0.995 to 0.021).
