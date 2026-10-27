@@ -34,11 +34,14 @@ st.set_page_config(page_title="CiteRAG")
 @st.cache_resource(show_spinner="Loading the index and models (first run only)…")
 def pipeline():
     store = Store()
+    retriever = Retriever(store)
     validator = Validator()
-    # Load both models now, not during the first question. Assigned, because
+    # Load the models now, not during the first question. Assigned, because
     # Streamlit "magic" would draw a bare expression on the page.
     _ = store.embedder.model, validator.nli.model
-    return store, Retriever(store), validator
+    if retriever.reranker:
+        _ = retriever.reranker.model
+    return store, retriever, validator
 
 
 @st.cache_resource

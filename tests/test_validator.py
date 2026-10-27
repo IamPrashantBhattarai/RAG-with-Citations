@@ -5,7 +5,7 @@ from citerag.generator import Answer, Generator, Segment
 from citerag.retriever import tokenize
 from citerag.store import Hit
 from citerag.validator import (
-    STRICT_EMPTY, Validator, clean, missing_terms, needs_citation, statement_spans, strict,
+    STRICT_EMPTY, Validator, clean, missing_terms, needs_citation, plain_math, statement_spans, strict,
 )
 
 
@@ -37,16 +37,17 @@ class FakeNLI:
         return out and __import__("numpy").array(out)
 
 
-def answer(text, hits=HITS):
+def answer(text, hits=HITS, question="q"):
     """A Gemini-style answer: [n] markers parsed into segments and quotes."""
     p = InlineCitations(hits)
     p.feed(text)
     p.close()
-    return Answer("q", p.text, p.segments, p.citations, hits, bool(p.citations), invalid_markers=p.invalid)
+    return Answer(question, p.text, p.segments, p.citations, hits, bool(p.citations),
+                  invalid_markers=p.invalid)
 
 
-def validate(text, nli=None, hits=HITS):
-    a = answer(text, hits)
+def validate(text, nli=None, hits=HITS, question="q"):
+    a = answer(text, hits, question)
     a.validation = Validator(nli or FakeNLI(), threshold=0.5).validate(a)
     return a
 
@@ -88,6 +89,7 @@ def test_lead_ins_headings_and_not_found_statements_need_no_citation():
     "I couldn't find information about fees.",
     "There is no information about the lab schedule.",
     "The provided excerpts don't include the course fees.",
+    "The provided excerpts do not name the people who proposed it.",
 ])
 def test_not_found_statements(text):
     assert not needs_citation(text)
@@ -154,6 +156,73 @@ def test_statement_spans_cover_sentences_and_list_lines_with_their_citations():
 
 def test_clean_strips_bullets_and_markdown():
     assert clean("*   **Web Services:** Introduction , *Examples* .") == "Web Services: Introduction, Examples."
+
+
+@pytest.mark.parametrize("tex, plain", [
+    (r"\beta_1 = 0.9", "β1 = 0.9"),
+    (r"O(n^2 \cdot d)", "O(n2 · d)"),
+    (r"\epsilon = 10^{-9}", "ϵ = 10-9"),
+    (r"d_{\text{model}} = 512", "dmodel = 512"),
+    (r"\frac{1}{\sqrt{d_k}}", "1/√dk"),
+])
+def test_latex_is_compared_the_way_pdf_text_shows_it(tex, plain):
+    assert plain_math(tex) == plain
+    assert clean(f"Adam with ${tex}$ [1].") == f"Adam with {plain} [1]."
+
+
+def test_warmup_steps_outside_math_keep_their_underscore():
+    assert clean("warmup_steps = 4000") == "warmup_steps = 4000"
+
+
+@pytest.mark.parametrize("text", [
+    "Based on the provided documents, the pass marks are 45 [1].",
+    "According to the syllabus, the pass marks are 45 [1].",
+    "In the provided excerpts, the pass marks are 45 [1].",
+    "Yes, the pass marks are 45 [1].",
+])
+def test_lead_ins_are_not_part_of_what_the_nli_model_checks(text):
+    nli = FakeNLI()
+    validate(text, nli)
+    assert {h for _, h in nli.calls[0]} == {"the pass marks are 45."}
+
+
+def test_the_question_is_given_to_the_nli_model_with_each_passage():
+    nli = FakeNLI()
+    validate("The pass marks are 45 [1].", nli, question="What are the pass marks?")
+    assert all(p.startswith("What are the pass marks?\n") for p, _ in nli.calls[0])
+
+
+def test_a_name_from_the_question_only_has_to_be_in_some_retrieved_passage():
+    hits = HITS + [hit(2, "Course Title: Web Technology I. Credit: 3.")]
+    a = validate("The pass marks for the Web Technology exam are 45 [1].", hits=hits,
+                 question="What are the pass marks for the Web Technology exam?")
+    assert not any("not in" in i for i in a.validation.checks[0].issues)
+    # A false premise is still caught: no retrieved passage mentions Data Science.
+    a = validate("The pass marks for the Data Science exam are 45 [1].", hits=hits,
+                 question="What are the pass marks for the Data Science exam?")
+    assert a.validation.checks[0].issues[0] == 'not in the cited passage: "Data", "Science"'
+
+
+def test_bare_list_items_are_checked_by_whether_the_cited_passage_names_them():
+    jquery = [hit(0, "6.4. Jquery: Overview, Basics, Selectors, Attributes, Traversing, DOM, Events")]
+    nli = FakeNLI()
+    a = validate("jQuery covers:\n- Selectors [1]\n- DOM, Events [1]\n- Widgets [1]", nli, hits=jquery)
+    assert statuses(a)[1:] == [("Selectors", "ok"), ("DOM, Events", "ok"), ("Widgets", "warn")]
+    assert a.validation.checks[3].issues == ["the cited passage doesn't mention it"]
+    assert nli.calls == []  # no NLI for bare terms
+
+
+@pytest.mark.parametrize("text", ["Pass marks: 100", "Not mandatory", "Attendance isn't required"])
+def test_short_items_with_numbers_or_negations_still_go_to_the_nli_model(text):
+    nli = FakeNLI()
+    validate(f"{text} [1].", nli)
+    assert len(nli.calls) == 1
+
+
+def test_numbers_with_spaces_between_thousands():
+    budget = hit(3, "compute budgets ranging from below one TPUv3 core-day to beyond 10 000 core-days")
+    assert missing_terms("beyond 10,000 core-days", [budget]) == []
+    assert missing_terms("beyond 20,000 core-days", [budget]) == ["20,000"]
 
 
 def test_strict_mode_removes_warned_statements_and_renumbers_citations():

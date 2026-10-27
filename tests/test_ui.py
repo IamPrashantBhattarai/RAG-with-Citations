@@ -124,6 +124,8 @@ class FakeStore:
 
 
 class FakeRetriever:
+    reranker = None
+
     def __init__(self, store):
         self.store = store
 
@@ -160,7 +162,8 @@ def test_empty_index_asks_for_documents(app):
     assert "Add a PDF" in at.info[0].value and at.chat_input[0].disabled
 
 
-def test_loading_the_models_draws_nothing_on_the_page(app):
+def test_loading_the_models_draws_nothing_on_the_page(app, monkeypatch):
+    monkeypatch.setattr(FakeRetriever, "reranker", NS(model="RERANK MODEL"))
     at = app()  # Streamlit "magic" draws bare expressions, e.g. a model preload
     assert not any("MODEL" in m.value for m in at.markdown)
 

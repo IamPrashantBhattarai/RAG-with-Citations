@@ -14,9 +14,9 @@ A record of every step taken to build this project: **what** was done and **why*
 | [05-generation.md](05-generation.md) | Cited answers: Claude (native Citations) or free Gemini ([n] markers + quote location) | ✅ Done |
 | [06-citation-checks.md](06-citation-checks.md) | Checking each statement against its citations (uncited claims, numbers/names, local NLI model), strict mode | ✅ Done |
 | [07-ui.md](07-ui.md) | Streamlit UI: documents sidebar, streamed answers, sources with highlighted quotes and PDF pages, checks; safety and localhost-only | ✅ Done |
+| [08-evaluation.md](08-evaluation.md) | Question set on the user's documents, retrieval and answer benchmarks, reranker switched on, citation checks tuned on real answers | ✅ Done |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
-Upcoming: `08-evaluation.md`.
 
 ## Roadmap at a glance
 
@@ -30,9 +30,9 @@ Upcoming: `08-evaluation.md`.
 | 5 | Cited answers (Claude or free Gemini) | ✅ |
 | 6 | Citation validation | ✅ |
 | 7 | Streamlit UI | ✅ |
-| 8 | Evaluation + tuning | ⬜ |
+| 8 | Evaluation + tuning | ✅ |
 
-## Key decisions so far
+## Key decisions
 
 1. **Python 3.12 via `uv`**, not system Python 3.9 — 3.9 is end-of-life and too old for current ChromaDB/Streamlit. ([00-setup.md](00-setup.md))
 2. **Embedding model `BAAI/bge-base-en-v1.5`**: first `bge-small` replaced `all-MiniLM-L6-v2` (MiniLM truncates at 256 tokens), then `bge-base` won a 5-model benchmark (best average nDCG@10 and Recall@5, same tokenizer as bge-small). ([02-chunking.md](02-chunking.md), [03-vector-store.md](03-vector-store.md))
@@ -44,3 +44,5 @@ Upcoming: `08-evaluation.md`.
 8. **Free Gemini backend** (`gemini-3.6-flash`; 3.8 was overloaded on the free tier) behind `CITERAG_LLM_PROVIDER`, for testing without a paid key: `[n]` markers are parsed while streaming and mapped to exact quotes, so both backends return the same cited `Answer`. ([05-generation.md](05-generation.md))
 9. **Every answer is checked statement by statement** with a number/name check plus a local NLI model (`MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli`, threshold 0.5), chosen from 4 models on RAGTruth, hand-labelled syllabus claims and real Gemini answers; the faster tasksource model failed on tables. Strict mode removes unsupported statements. ([06-citation-checks.md](06-citation-checks.md))
 10. **A plain Streamlit page, reachable only from this computer.** Every citation opens to its passage (quote highlighted) and the cited PDF page; unsupported statements are highlighted. LLM and document text is HTML-escaped before rendering, and `server.address = "localhost"` replaces Streamlit's listen-on-every-interface default. ([07-ui.md](07-ui.md))
+11. **Phase 8 measured everything on the user's documents** (78 questions over the syllabus and two papers, exact-quote gold labels). The reranker is now on by default, reranking the top 10: right passage first 0.56 → 0.84, answers 50 → 53/55 correct, and no wrong answers in 124. Chunk size 384, k = 5, the 0.45 gate and the 0.5 NLI threshold were confirmed. ([08-evaluation.md](08-evaluation.md))
+12. **Citation checks tuned on real answers:** lead-ins removed, the question given to the NLI model as context, LaTeX turned into plain text, bare list items checked by name. True statements wrongly warned 28% → 8%; deliberately altered statements caught 98% → 93%. ([08-evaluation.md](08-evaluation.md))

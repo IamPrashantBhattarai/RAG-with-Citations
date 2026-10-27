@@ -116,6 +116,17 @@ A fake NLI model (entailed when the statement's words are all in the premise) ke
 
 Also new: `test_citations.py` (a marker cites only its own line; segments keep every character) and `test_gemini.py` (invalid markers reach the `Answer`).
 
+## Phase 8 update (2026-10-27)
+
+On 124 real answers, these checks warned on 28% of statements that were true. Phase 8 removed most of that ([08-evaluation.md](08-evaluation.md#step-6--the-citation-checks-on-real-answers)). Now:
+- "Based on the provided documents," lead-ins and a leading "Yes," are removed before NLI.
+- The question is put in front of each passage given to the NLI model.
+- A name the question introduces only has to appear in some retrieved passage, so false premises are still caught.
+- LaTeX becomes plain text, and "10 000" matches "10,000".
+- Bare list items are checked by whether the cited passage names them.
+
+Result: true statements warned 48/170 → 13/170, and altered statements caught 145/148 → 138/148. The threshold stays 0.5.
+
 ## Known limitations
 
 - **PDF extraction artifacts** ("a ttend", "e valuated", "HT ML5") lower NLI scores and can cause false warnings. Fixing them belongs in the Phase 1 loader (re-joining split words).

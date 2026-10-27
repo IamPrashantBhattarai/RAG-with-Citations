@@ -52,6 +52,7 @@ Same setup as Phase 3 (BEIR SciFact + NFCorpus, bge-base embeddings, Apple M5). 
 - **Hybrid ≈ dense on these benchmarks.** Their questions are paraphrases with few exact codes or names, which is where keyword search shines. It costs nothing in accuracy or speed here, and on the real syllabus it fixed a ranking that dense search alone got wrong (see Step 6).
 - **No reranker improved both datasets.** MiniLM (trained on web search queries) hurt both. bge-reranker-base was worse on SciFact and very slow, so it was stopped after the first dataset because its remaining runs couldn't change the verdict. gte was the best on SciFact (+0.016) but lost 0.028 on NFCorpus, and adds about 1.5 s per question.
 - **Decision:** hybrid without a reranker as the default. The reranker code stays (tested, with gte as the model) behind `USE_RERANKER`, because these benchmarks are not the user's documents. Phase 8 will re-test it on real questions.
+- **Changed in Phase 8 (2026-10-27):** on the user's documents the reranker won clearly (right passage first 0.56 → 0.84, answers 50 → 53/55 correct), so it is now **on by default**, reranking the top 10 candidates (`RETRIEVE_CANDIDATES` 30 → 10, as accurate and 3× faster). See [08-evaluation.md](08-evaluation.md).
 
 ## Step 4 — "Not in the documents" gate (`MIN_SCORE = 0.45`)
 

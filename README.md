@@ -24,6 +24,17 @@ In the app: add PDF/TXT/MD files in the sidebar, then ask a question. Each answe
 open one to see the quoted passage and the cited PDF page. Statements their sources don't support
 are highlighted. Strict mode removes them instead.
 
+## Evaluate
+
+The question set in `eval/questions.json` covers the three PDFs it lists, which must be in `data/`:
+
+```bash
+python -m eval.retrieval                 # retrieval + "not in the documents" gate, local, ~1 min
+python -m eval.answers --tag mytag       # full pipeline with the LLM; resumable, --recheck re-runs checks only
+```
+
+Results and the choices they led to: `ai_agents/08-evaluation.md`.
+
 ## Layout
 
 | Path | Purpose |
@@ -32,12 +43,12 @@ are highlighted. Strict mode removes them instead.
 | `citerag/loaders.py` | Load PDF/TXT/MD into page records |
 | `citerag/chunker.py` | Split pages into chunks with stable IDs |
 | `citerag/store.py` | Embeddings + ChromaDB |
-| `citerag/retriever.py` | Hybrid retrieval (dense + BM25 keyword search, fused) with a "not in the documents" gate |
+| `citerag/retriever.py` | Hybrid retrieval (dense + BM25 keyword search, fused, then reranked) with a "not in the documents" gate |
 | `citerag/generator.py` | Cited answers with Claude (native Citations: exact quotes per claim) |
 | `citerag/gemini.py` | Free Gemini backend for answers |
 | `citerag/citations.py` | Parse [n] citation markers into exact quotes |
 | `citerag/validator.py` | Check each statement against what it cites (uncited claims, numbers/names, local NLI model); strict mode drops unsupported ones |
 | `citerag/ui.py` | UI helpers: safe answer rendering, quote highlighting, uploads, cited PDF pages |
 | `app.py` | Streamlit UI |
-| `eval/` | Evaluation question set + scoring |
+| `eval/` | Phase 8 evaluation: question set with exact-quote gold labels, retrieval and answer benchmarks |
 | `data/` | Your source documents (git-ignored) |

@@ -11,8 +11,10 @@ sentence or list item is checked:
    appear in a passage it cites. Numbers also match number words and Roman
    numerals ("80" ~ "Eighty", "7" ~ "VII").
 3. Support: a small local NLI (natural language inference) model reads the
-   cited quote and the cited passage and estimates the probability that
-   one of them entails the statement. Free and on-device.
+   cited quote and the cited passage (each after the question, which says
+   what the passage is about) and estimates the probability that one of
+   them entails the statement, minus any "Based on the documents," lead-in.
+   Free and on-device.
 4. Invalid markers: [n] markers pointing at excerpts that don't exist
    (Gemini only; Phase 5 drops them from the text) are reported.
 
@@ -58,11 +60,27 @@ _META_RES = [
     re.compile(r"\bno\s+(?:specific\s+|further\s+|other\s+)?(?:information|mention|details?)\b", re.I),
     re.compile(r"\b(?:couldn't|could not|can't|cannot|unable to)\s+(?:find|locate|determine|answer)\b", re.I),
     re.compile(rf"\b(?:do|does|did)(?:\s+not|n't)\s+(?:\w+ly\s+)?"
-               rf"(?:include|contain|provide|cover|list|give)\b.*\b{_DOCS}\b"
+               rf"(?:include|contain|provide|cover|list|give|name|identify)\b.*\b{_DOCS}\b"
                rf"|\b{_DOCS}\b.*\b(?:do|does|did)(?:\s+not|n't)\s+(?:\w+ly\s+)?"
-               rf"(?:include|contain|provide|cover|list|give)\b", re.I),
+               rf"(?:include|contain|provide|cover|list|give|name|identify)\b", re.I),
 ]
 
+# "Based on the provided documents, ..." adds nothing to check, but it drops the NLI
+# score of a correct statement from ~0.99 to ~0.02 (ai_agents/08-evaluation.md).
+_LEAD_IN_RE = re.compile(
+    rf"^(?:(?:based on|according to)\s+(?:the\s+)?(?:provided\s+|given\s+|cited\s+)?{_DOCS}"
+    rf"|(?:in|from)\s+the\s+(?:provided|given|cited)\s+{_DOCS})\b[^,:]{{0,30}}[,:]\s*",
+    re.I,
+)
+_NEGATION_RE = re.compile(r"\b(?:no|not|never|none|nor|without|cannot)\b|n't", re.I)
+# LaTeX the LLM writes ($\beta_1 = 0.9$) vs. what the PDF text says (β1 = 0.9).
+_MATH_RE = re.compile(r"\$([^$\n]+)\$")
+_LATEX = {
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ϵ", "varepsilon": "ε",
+    "theta": "θ", "lambda": "λ", "mu": "μ", "sigma": "σ", "pi": "π", "cdot": "·", "times": "×",
+    "le": "≤", "leq": "≤", "ge": "≥", "geq": "≥", "approx": "≈", "infty": "∞", "pm": "±",
+    "sqrt": "√", "to": "→", "ldots": "...", "dots": "...",
+}
 _DISPLAY_MARKER_RE = re.compile(r"\[(\d+)\]")
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)*")
 _ROMAN_RE = re.compile(r"\b[IVXL]{1,6}\b")
@@ -203,12 +221,31 @@ class Validator:
                             if cited[n].chunk_id in hits}.values())
             missing = missing_terms(text, sources)
             if missing:
+                # Answers restate the question's subject ("the pass marks for the Web Technology
+                # exam are 45") that the cited passage only implies. A term the question uses
+                # only has to occur in some retrieved passage, so a false premise is still caught.
+                retrieved = set(missing_terms(text, answer.hits))
+                asked = set(tokenize(answer.question))
+                missing = [m for m in missing
+                           if m in retrieved or not (tokenize(m) and set(tokenize(m)) <= asked)]
+            if missing:
                 check.issues.append(f"not in {_cited(sources)}: " + ", ".join(f'"{m}"' for m in missing))
             quotes = [cited[n].cited_text for n in nums]
             premises = quotes + ([" ".join(quotes)] if len(quotes) > 1 else []) + [h.text for h in sources]
+            claim = _claim(text)
+            if _is_term(claim):
+                # A bare list item ("Selectors") isn't a sentence an NLI model can judge;
+                # what matters is that what it cites names it.
+                if not set(tokenize(claim)) <= set(tokenize(" ".join(premises))):
+                    check.issues.append(f"{_cited(sources)} {'doesn' if len(sources) == 1 else 'don'}'t mention it")
+                check.status = "warn" if check.issues else "ok"
+                continue
             pending.append((check, list(dict.fromkeys(premises)), sources))
 
-        pairs = [(p, check.text.rstrip(":")) for check, premises, _ in pending for p in premises]
+        # The question goes in with each passage: it names what the passage is about, which
+        # the passage itself often doesn't ("The encoder is ..." in the Transformer paper).
+        pairs = [(f"{answer.question}\n{p}", _claim(check.text).rstrip(":"))
+                 for check, premises, _ in pending for p in premises]
         scores = self.nli.scores(pairs) if pairs else np.zeros((0, 2))
         i = 0
         for check, premises, sources in pending:
@@ -354,10 +391,38 @@ def statement_spans(segments: list[Segment]) -> list[tuple[int, int, list[int]]]
 
 
 def clean(text: str) -> str:
-    """Drop list bullets and markdown emphasis; collapse whitespace."""
+    """Drop list bullets and markdown emphasis, turn $LaTeX$ into plain text; collapse whitespace."""
     text = _MARKDOWN_RE.sub("", _BULLET_RE.sub("", text, count=1))
+    text = _MATH_RE.sub(lambda m: plain_math(m.group(1)), text)
     text = " ".join(text.split())
     return re.sub(r"\s+([.,;:!?)])", r"\1", text)
+
+
+def plain_math(tex: str) -> str:
+    r"""LaTeX math as plain text, the way PDF text shows it: "\beta_1 = 0.9" -> "β1 = 0.9"."""
+    tex = re.sub(r"\\(?:mathrm|text|mathbf|textbf|mathit|operatorname)\{([^}]*)\}", r"\1", tex)
+    tex = re.sub(r"\\sqrt\{([^{}]*)\}", r"√\1", tex)
+    tex = re.sub(r"\\frac\{([^{}]*)\}\{([^{}]*)\}", r"\1/\2", tex)  # \frac{1}{\sqrt{d_k}} -> 1/√d_k
+    tex = re.sub(r"\\([A-Za-z]+)", lambda m: _LATEX.get(m.group(1), m.group(1)), tex)
+    return re.sub(r"[_^{}]|\\[,;! ]", "", tex)
+
+
+def _is_term(text: str) -> bool:
+    """A bare term or short list item ("Selectors", "DOM tree") rather than a sentence.
+
+    Numbers and negations are left to the NLI model: "Pass marks: 100" could pair a
+    label with the wrong value from a table, and "Not mandatory" says the opposite.
+    """
+    words = tokenize(text)
+    return 0 < len(words) <= 3 and not re.search(r"\d", text) and not _NEGATION_RE.search(text)
+
+
+def _claim(text: str) -> str:
+    """The part of a statement that makes a claim, without a "Based on the documents," lead-in.
+
+    A leading "Yes," goes too: what follows says the same. "No," stays, it carries the claim.
+    """
+    return re.sub(r"^yes[,.!]\s+", "", _LEAD_IN_RE.sub("", text, count=1), count=1, flags=re.I)
 
 
 def needs_citation(text: str) -> bool:
@@ -406,6 +471,8 @@ def _source_numbers(text: str) -> set[str]:
     for n in _NUMBER_RE.findall(text):
         nums.add(_normalize_number(n))
         nums.update(re.split(r"[.,]", n))  # "7.7" -> also "7"; "60,20" -> "60", "20"
+    for n in re.findall(r"\b\d{1,3}(?:[ \u2009\u202f]\d{3})+\b", text):
+        nums.add(re.sub(r"\D", "", n))  # "10 000" (thousands separated by a space) -> "10000"
     for w in re.findall(r"[a-z]+", text.lower()):
         if w in _NUMBER_WORDS:
             nums.add(str(_NUMBER_WORDS[w]))

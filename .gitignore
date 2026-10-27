@@ -8,3 +8,5 @@ __pycache__/
 data/*
 !data/.gitkeep
 .streamlit/secrets.toml
+eval/.cache/
+eval/runs/

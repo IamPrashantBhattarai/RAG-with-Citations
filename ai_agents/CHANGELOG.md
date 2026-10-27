@@ -4,6 +4,34 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-10-27
 
+### Changed — Citation checks tuned on real answers ([08-evaluation.md](08-evaluation.md#step-6--the-citation-checks-on-real-answers))
+- `citerag/validator.py`:
+  - "Based on the provided documents," lead-ins and a leading "Yes," are removed before NLI (they dropped a correct statement's score from 0.995 to 0.021).
+  - The question goes in front of each passage given to the NLI model.
+  - A name the question introduces only has to appear in some retrieved passage, so a false premise is still caught.
+  - LaTeX becomes plain text (`plain_math`).
+  - "10 000" matches "10,000".
+  - Bare list items (3 content words or fewer, no digits or negation) are checked by whether the cited passage names them.
+  - "do not name/identify" counts as a not-found statement.
+- Measured on 170 real statements and 148 deliberately altered ones: true statements warned 48 → 13, altered statements caught 145 → 138, balanced accuracy 0.85 → 0.93. NLI threshold swept 0.3–0.7 and kept at 0.5.
+- Tests: 18 new in `test_validator.py`.
+
+### Changed — Reranker on by default ([08-evaluation.md](08-evaluation.md#step-5--answer-benchmark-python--m-evalanswers))
+- `USE_RERANKER` 0 → 1 and `RETRIEVE_CANDIDATES` 30 → 10. On the user's documents, the right passage came first 0.56 → 0.84 of the time (sign test p = 0.0005) and answers went 50 → 53/55 correct. Reranking 10 candidates was as accurate as 30 and 3× faster (0.45 s vs 1.4 s per question).
+- `app.py` loads the reranker at startup with the other models; UI test checks the preload draws nothing.
+- `.env.example`: `CITERAG_USE_RERANKER=0` to turn it off, `CITERAG_RETRIEVE_CANDIDATES`.
+
+### Added — Phase 8: Evaluation ([08-evaluation.md](08-evaluation.md))
+- `eval/questions.json`: 78 questions over the syllabus and two papers the user added. 55 answerable (exact evidence quotes, alternatives where a fact appears in several places; facts an answer must contain), 8 unanswerable, 15 off-topic.
+- `eval/metrics.py` (quote location, chunk coverage, retrieval and answer scoring), `eval/retrieval.py` (chunk-size × method × candidates sweep, gate calibration, local only), `eval/answers.py` (full pipeline with resumable runs, `--score-only`, `--recheck` with no LLM calls).
+- Confirmed: chunk size 384, k = 5, gate 0.45 (0/55 answerable rejected, 0/15 off-topic accepted).
+- Found by the first run: gold labels listing only one of several places a fact appears; fixed with alternative quotes and a reachability check.
+- Tests: `test_eval.py` (20). 191 passing in total.
+
+### System
+- `eval/.cache/` (evaluation indexes) and `eval/runs/` (answers quote the documents) added to `.gitignore`.
+- Gemini free tier: `gemini-3.6-flash` allows 20 requests a day (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`). The evaluation runs used `gemini-3.5-flash-lite`, about 124 requests. No new packages; the reranker model was already downloaded in Phase 4.
+
 ### Added — Phase 7: Streamlit UI ([07-ui.md](07-ui.md))
 - `app.py`: documents sidebar (list, upload into `data/` and index, remove from index, rescan folder); settings (Gemini/Claude, search in, k, check citations, strict mode); streamed answers with superscript citations, unsupported statements highlighted with reasons as tooltips, a summary line, one expander per citation (passage with the quote highlighted, plus the cited PDF page), Checks, and Retrieved passages with scores.
 - Plain design, as asked by the user: no emojis or avatars, default theme, minimal toolbar.

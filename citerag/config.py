@@ -54,9 +54,12 @@ CHUNK_MIN = int(os.getenv("CITERAG_CHUNK_MIN", "96"))  # merge/avoid smaller
 
 # Retrieval
 TOP_K = int(os.getenv("CITERAG_TOP_K", "5"))  # chunks handed to the LLM
-RETRIEVE_CANDIDATES = int(os.getenv("CITERAG_RETRIEVE_CANDIDATES", "30"))  # per search, reranked
-# Hybrid search alone beat every reranker tested (ai_agents/04-retrieval.md).
-USE_RERANKER = os.getenv("CITERAG_USE_RERANKER", "0") == "1"
+# Per search, then reranked. Reranking the top 10 was as accurate as the top 30 on the
+# Phase 8 question set and 3x faster (ai_agents/08-evaluation.md).
+RETRIEVE_CANDIDATES = int(os.getenv("CITERAG_RETRIEVE_CANDIDATES", "10"))
+# Off in Phase 4 (public benchmarks, no gain); on since Phase 8: on the user's documents it put
+# the right passage first far more often (R@1 0.84 vs 0.56) and answers went from 50/55 to 53/55.
+USE_RERANKER = os.getenv("CITERAG_USE_RERANKER", "1") == "1"
 RERANK_MODEL = os.getenv("CITERAG_RERANK_MODEL", "Alibaba-NLP/gte-reranker-modernbert-base")
 # If the best dense match (cosine) is below this, the question is treated as not
 # covered by the documents. Calibrated for bge-base; re-check if the model changes.
