@@ -3,6 +3,6 @@ google-genai>=2.33  # optional free Gemini backend
 chromadb>=1.0
 sentence-transformers>=3.0
 pypdf>=5.0
-streamlit>=1.40
+streamlit[pdf]>=1.66  # UI; [pdf] adds the viewer for cited pages
 python-dotenv>=1.0
 pytest>=8.0

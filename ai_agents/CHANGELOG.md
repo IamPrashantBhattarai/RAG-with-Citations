@@ -4,6 +4,21 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-10-27
 
+### Added — Phase 7: Streamlit UI ([07-ui.md](07-ui.md))
+- `app.py`: documents sidebar (list, upload into `data/` and index, remove from index, rescan folder); settings (Gemini/Claude, search in, k, check citations, strict mode); streamed answers with superscript citations, unsupported statements highlighted with reasons as tooltips, a summary line, one expander per citation (passage with the quote highlighted, plus the cited PDF page), Checks, and Retrieved passages with scores.
+- Plain design, as asked by the user: no emojis or avatars, default theme, minimal toolbar.
+- `citerag/ui.py`: safe rendering (LLM/document text HTML-escaped, markdown images removed, `$` escaped), quote highlighting, upload name sanitising, path checks, cutting cited pages out of PDFs.
+- `validator.display_offsets`: maps plain-text spans to the displayed answer; strict mode's text cutting now uses it too.
+- Tests: `test_ui.py` (17: helpers + headless `AppTest` runs of the real app with fakes); 153 total. Also driven in headless Chrome against the user's syllabus with Gemini.
+
+### Fixed — found by running the app
+- Model descriptions were printed on the page (Streamlit "magic" drew the bare preload expressions); regression test added.
+- Hundreds of `No module named 'torchvision'` tracebacks per rerun from Streamlit's module watcher: `fileWatcherType = "none"`, plus that logger quietened for Streamlit's reconnect path, which ignores the setting.
+
+### System
+- **Security:** the app listened on every network interface (Streamlit's default) and was reachable from the local network. `.streamlit/config.toml` now binds it to `localhost` (verified: `127.0.0.1:8501` only), turns off Streamlit's usage statistics, and uses the minimal toolbar. `.streamlit/secrets.toml` added to `.gitignore`.
+- Installed `streamlit-pdf` 2.1.0 via `streamlit[pdf]` (requirements: `streamlit[pdf]>=1.66`); dependency check clean.
+
 ### System — Pushed to GitHub
 - Committed Phase 6 (citation validation), the marker-parsing fix and the build log to `main`. Before pushing: no Anthropic (`sk-ant-…`) or Google (`AIza…`) keys in changed or new files; `.env`, `.venv/`, `.chroma/` and `data/*` (including the user's syllabus PDF) confirmed git-ignored.
 

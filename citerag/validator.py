@@ -281,28 +281,45 @@ def strict(answer: Answer) -> Answer:
                    found=bool(citations), validation=validation)
 
 
+def display_offsets(text: str, plain: str) -> list[int]:
+    """Where each character of `plain` (and its end) sits in `text`.
+
+    `text` is the answer as displayed: `plain` (the segments joined) with [n]
+    markers inserted and outer whitespace stripped. Each backend places
+    markers its own way, so the two are aligned rather than re-rendered. A
+    marker goes with the character before it: the span [pos[a], pos[b]) of a
+    statement includes the markers right after it.
+    """
+    pos, i = [], 0
+    for j, ch in enumerate(plain):
+        while (m := _DISPLAY_MARKER_RE.match(text, i)) and not plain.startswith(m.group(), j):
+            i = m.end()
+        pos.append(i)
+        if i < len(text) and text[i] == ch:
+            i += 1  # otherwise ch was whitespace stripped from the display text
+    while m := _DISPLAY_MARKER_RE.match(text, i):
+        i = m.end()
+    pos.append(i)
+    return pos
+
+
 def _cut_text(text: str, plain: str, cuts: list[tuple[int, int]], renumber: dict[int, int]) -> str:
-    """Delete the cut spans of `plain` from the displayed text, which is `plain`
-    with [n] markers inserted. Each backend places markers its own way, so the
-    two are aligned rather than re-rendered. A marker goes with the character
-    before it."""
-    out, j, last = [], 0, -1  # j: position in plain; last: plain index before a marker
-    i = 0
+    """Delete the cut spans of `plain` (with their markers) from the displayed text."""
+    pos = display_offsets(text, plain)
+    removed = [False] * len(text)
+    for s, e in cuts:
+        removed[pos[s]:pos[e]] = [True] * (pos[e] - pos[s])
+    plain_at = set(pos[:-1])
+    out, i = [], 0
     while i < len(text):
         m = _DISPLAY_MARKER_RE.match(text, i)
-        if m and not plain.startswith(m.group(), j):
+        if m and i not in plain_at:
             n = int(m.group(1))
-            if not _inside(last, cuts) and n in renumber:
+            if not removed[i] and n in renumber:
                 out.append(f"[{renumber[n]}]")
             i = m.end()
             continue
-        while j < len(plain) and plain[j] != text[i] and plain[j].isspace():
-            j += 1  # whitespace stripped from the display text
-        if j < len(plain) and plain[j] == text[i]:
-            if not _inside(j, cuts):
-                out.append(text[i])
-            last, j = j, j + 1
-        else:
+        if not removed[i]:
             out.append(text[i])
         i += 1
     return "".join(out).strip()

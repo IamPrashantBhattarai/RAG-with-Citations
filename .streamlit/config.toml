@@ -1,0 +1,15 @@
+[server]
+# Only this computer can open the app. Streamlit's default listens on every
+# network interface, so anyone on the same network could read the indexed
+# documents and use the API key.
+address = "localhost"
+# Streamlit's auto-reload watcher inspects every loaded module on each rerun.
+# With transformers loaded, that logged hundreds of harmless "No module named
+# 'torchvision'" tracebacks. Restart the app after editing code instead.
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false  # no usage statistics sent to Streamlit
+
+[client]
+toolbarMode = "minimal"  # no "Deploy" button or developer menu

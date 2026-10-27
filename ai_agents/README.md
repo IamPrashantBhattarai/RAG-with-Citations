@@ -13,9 +13,10 @@ A record of every step taken to build this project: **what** was done and **why*
 | [04-retrieval.md](04-retrieval.md) | Hybrid search (dense + BM25), fusion, reranker benchmark, relevance gate | ✅ Done |
 | [05-generation.md](05-generation.md) | Cited answers: Claude (native Citations) or free Gemini ([n] markers + quote location) | ✅ Done |
 | [06-citation-checks.md](06-citation-checks.md) | Checking each statement against its citations (uncited claims, numbers/names, local NLI model), strict mode | ✅ Done |
+| [07-ui.md](07-ui.md) | Streamlit UI: documents sidebar, streamed answers, sources with highlighted quotes and PDF pages, checks; safety and localhost-only | ✅ Done |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
-Upcoming: `07-ui.md`, `08-evaluation.md`.
+Upcoming: `08-evaluation.md`.
 
 ## Roadmap at a glance
 
@@ -28,7 +29,7 @@ Upcoming: `07-ui.md`, `08-evaluation.md`.
 | 4 | Retrieval | ✅ |
 | 5 | Cited answers (Claude or free Gemini) | ✅ |
 | 6 | Citation validation | ✅ |
-| 7 | Streamlit UI | ⬜ |
+| 7 | Streamlit UI | ✅ |
 | 8 | Evaluation + tuning | ⬜ |
 
 ## Key decisions so far
@@ -42,3 +43,4 @@ Upcoming: `07-ui.md`, `08-evaluation.md`.
 7. **Claude's native Citations feature, one plain-text document per chunk**, so every citation carries an API-extracted exact quote with character offsets; model `claude-opus-5-5` at effort `medium`, with server-side refusal fallback. ([05-generation.md](05-generation.md))
 8. **Free Gemini backend** (`gemini-3.6-flash`; 3.8 was overloaded on the free tier) behind `CITERAG_LLM_PROVIDER`, for testing without a paid key: `[n]` markers are parsed while streaming and mapped to exact quotes, so both backends return the same cited `Answer`. ([05-generation.md](05-generation.md))
 9. **Every answer is checked statement by statement** with a number/name check plus a local NLI model (`MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli`, threshold 0.5), chosen from 4 models on RAGTruth, hand-labelled syllabus claims and real Gemini answers; the faster tasksource model failed on tables. Strict mode removes unsupported statements. ([06-citation-checks.md](06-citation-checks.md))
+10. **A plain Streamlit page, reachable only from this computer.** Every citation opens to its passage (quote highlighted) and the cited PDF page; unsupported statements are highlighted. LLM and document text is HTML-escaped before rendering, and `server.address = "localhost"` replaces Streamlit's listen-on-every-interface default. ([07-ui.md](07-ui.md))

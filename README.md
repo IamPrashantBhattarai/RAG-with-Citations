@@ -10,15 +10,19 @@ Requires Python 3.10+.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # then add your ANTHROPIC_API_KEY
+cp .env.example .env   # then add ANTHROPIC_API_KEY, or GEMINI_API_KEY for the free Gemini backend
 ```
 
 ## Run
 
 ```bash
-streamlit run app.py
+streamlit run app.py   # opens http://localhost:8501 (this computer only)
 pytest
 ```
+
+In the app: add PDF/TXT/MD files in the sidebar, then ask a question. Each answer lists its sources;
+open one to see the quoted passage and the cited PDF page. Statements their sources don't support
+are highlighted. Strict mode removes them instead.
 
 ## Layout
 
@@ -33,6 +37,7 @@ pytest
 | `citerag/gemini.py` | Free Gemini backend for answers |
 | `citerag/citations.py` | Parse [n] citation markers into exact quotes |
 | `citerag/validator.py` | Check each statement against what it cites (uncited claims, numbers/names, local NLI model); strict mode drops unsupported ones |
+| `citerag/ui.py` | UI helpers: safe answer rendering, quote highlighting, uploads, cited PDF pages |
 | `app.py` | Streamlit UI |
 | `eval/` | Evaluation question set + scoring |
 | `data/` | Your source documents (git-ignored) |

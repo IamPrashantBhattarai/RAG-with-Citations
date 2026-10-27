@@ -119,6 +119,7 @@ Also new: `test_citations.py` (a marker cites only its own line; segments keep e
 ## Known limitations
 
 - **PDF extraction artifacts** ("a ttend", "e valuated", "HT ML5") lower NLI scores and can cause false warnings. Fixing them belongs in the Phase 1 loader (re-joining split words).
+- **The checks read the text as extracted, not the page as laid out.** In the Phase 7 live test, a Gemini fallback model answered "the pass marks *for the external practical evaluation* are 45". In the PDF, 45 belongs to the end-semester exam grid, but the extracted text puts that grid right after the practical-exam paragraph. The check passed it, because the passage really does read that way.
 - **Tables are the weakest case.** Even the chosen model warned on "worth a total of 20 marks", taken from the table row `Total Internal 100% 20`.
 - **A wrong quote can still pass.** When the full passage supports a statement but the quote doesn't, the statement passes. That's right for the citation but leaves an imprecise highlight. Example: "Internal Exams: 50%" got a quote from the wrong part of an interleaved table.
 - Number words in the *statement* aren't checked lexically ("two hours" relies on NLI), because words like "one" are often not numbers.
