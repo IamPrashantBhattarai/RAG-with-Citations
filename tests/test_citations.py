@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from citerag.citations import InlineCitations, locate_quote
@@ -60,6 +62,21 @@ def test_grouped_and_ranged_markers():
 def test_invalid_marker_numbers_are_dropped_and_recorded():
     p, shown = parse("The pass mark is 45 [1][9].")
     assert shown == "The pass mark is 45 [1]." and p.invalid == [9]
+
+
+def test_a_marker_cites_only_its_own_line_not_the_heading_above():
+    p, _ = parse("**2. Marks**\nThe pass mark is 45 [1]")
+    assert [(s.text, s.citations) for s in p.segments] == [("**2. Marks**\n", []), ("The pass mark is 45 ", [1])]
+
+
+@pytest.mark.parametrize("text", [
+    "Topics:\n- Pass marks [1]\n- Server side scripting [2]",
+    "**2. Marks**\n\nThe pass mark is 45 [1]. Unit VII covers scripting [2].",
+    "Intro. The pass mark is 45 [1][9] and Ruby [2].\n",
+])
+def test_segments_keep_every_character_of_the_answer(text):
+    p, _ = parse(text)
+    assert "".join(s.text for s in p.segments) == re.sub(r"\[[\d,\s\-–]+\]", "", text)
 
 
 def test_list_items_each_cite_their_own_line():

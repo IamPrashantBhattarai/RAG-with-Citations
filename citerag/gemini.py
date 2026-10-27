@@ -162,6 +162,7 @@ class GeminiBackend:
             stop_reason=(finish or "stop").lower(),
             model=model,
             usage=usage_dict,
+            invalid_markers=parsed.invalid,
         )
 
 

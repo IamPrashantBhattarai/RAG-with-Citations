@@ -23,12 +23,15 @@ from __future__ import annotations
 import argparse
 import logging
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
 
 import anthropic
 
 from citerag import config
 from citerag.store import Hit
+
+if TYPE_CHECKING:
+    from citerag.validator import Validation, Validator
 
 log = logging.getLogger(__name__)
 
@@ -98,6 +101,8 @@ class Answer:
     stop_reason: str | None = None
     model: str | None = None
     usage: dict = field(default_factory=dict)
+    invalid_markers: list[int] = field(default_factory=list)  # [n] with no such excerpt (dropped)
+    validation: Validation | None = None  # Phase 6 checks, when enabled
 
 
 class Backend(Protocol):
@@ -109,13 +114,31 @@ class Backend(Protocol):
 
 
 class Generator:
-    def __init__(self, retriever=None, backend: Backend | None = None):
+    def __init__(
+        self,
+        retriever=None,
+        backend: Backend | None = None,
+        validator: Validator | None = None,
+        validate: bool = config.VALIDATE,
+        strict: bool = config.STRICT,
+    ):
         if retriever is None:
             from citerag.retriever import Retriever
 
             retriever = Retriever()
         self.retriever = retriever
         self.backend = backend or make_backend()
+        self.validate = validate or strict
+        self.strict = strict
+        self._validator = validator
+
+    @property
+    def validator(self) -> Validator:
+        if self._validator is None:
+            from citerag.validator import Validator
+
+            self._validator = Validator()
+        return self._validator
 
     def answer(
         self,
@@ -127,14 +150,24 @@ class Generator:
         """Retrieve, ask the LLM, and return a cited answer.
 
         `on_text` receives the answer as it streams: text pieces as they are
-        generated and a "[n]" marker as each citation arrives.
+        generated and a "[n]" marker as each citation arrives. In strict mode
+        nothing streams; `on_text` gets the checked answer once, at the end.
         """
         hits = self.retriever.retrieve(question, k=k, sources=sources)
         if not hits:
             if on_text:
                 on_text(NOT_FOUND)
             return Answer(question, NOT_FOUND, [Segment(NOT_FOUND)], [], [], found=False)
-        return self.backend.generate(question, hits, on_text)
+        answer = self.backend.generate(question, hits, None if self.strict else on_text)
+        if self.validate:
+            answer.validation = self.validator.validate(answer)
+        if self.strict:
+            from citerag.validator import strict
+
+            answer = strict(answer)
+            if on_text:
+                on_text(answer.text)
+        return answer
 
 
 def make_backend(provider: str = config.LLM_PROVIDER) -> Backend:
@@ -330,6 +363,10 @@ def _main() -> None:
     parser.add_argument("-k", type=int, default=config.TOP_K, help="chunks given to the LLM")
     parser.add_argument("--source", action="append", help="limit to a file (repeatable)")
     parser.add_argument("--provider", choices=["anthropic", "gemini"], default=config.LLM_PROVIDER)
+    parser.add_argument("--strict", action="store_true", default=config.STRICT,
+                        help="remove statements that fail the citation checks")
+    parser.add_argument("--no-validate", dest="validate", action="store_false", default=config.VALIDATE,
+                        help="skip the citation checks")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     # Run as `python -m`, this file is `__main__`, while the backends import
@@ -338,7 +375,10 @@ def _main() -> None:
     from citerag import generator as g
 
     try:
-        generator = g.Generator(backend=g.make_backend(args.provider))
+        generator = g.Generator(backend=g.make_backend(args.provider), validate=args.validate,
+                                strict=args.strict)
+        if generator.validate:
+            generator.validator.nli.model  # load now: its log lines would break the streamed answer
         answer = generator.answer(
             args.question, args.k, args.source, on_text=lambda t: print(t, end="", flush=True)
         )
@@ -350,10 +390,25 @@ def _main() -> None:
         print("\nSources:")
         for c in answer.citations:
             quote = " ".join(c.cited_text.split())
-            print(f"  [{c.number}] {c.source}, {c.pages}: \"{quote[:160]}{'…' if len(quote) > 160 else ''}\"")
+            print(f"  [{c.number}] {c.source}, {c.pages}: \"{_short(quote, 160)}\"")
+    v = answer.validation
+    if v is not None and (v.claims or v.removed or v.invalid_markers):
+        print("\nChecks:")
+        for c in v.claims:
+            marks = "".join(f"[{n}]" for n in c.citations)
+            print(f"  {'✅' if c.status == 'ok' else '⚠️ '} {_short(c.text, 110)}{marks}")
+            for issue in c.issues:
+                print(f"       {issue}")
+        for c in v.removed:
+            print(f"  ✂️  removed: {_short(c.text, 100)} ({'; '.join(c.issues)})")
+        print(f"  {v.summary()}")
     if answer.usage:
         print(f"\n({answer.model}, {answer.usage['input_tokens']} in / "
               f"{answer.usage['output_tokens']} out tokens)")
+
+
+def _short(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit] + "…"
 
 
 if __name__ == "__main__":

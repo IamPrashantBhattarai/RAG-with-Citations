@@ -127,5 +127,5 @@ Token use: about 2,100–2,300 input and 90–230 output tokens per question.
 ## Known limitations
 - A citation shows the chunk's page range. If a chunk spans two pages, the exact page of the quoted sentence isn't known yet (page offsets aren't stored per chunk).
 - Single-turn only; follow-up questions don't see earlier answers.
-- With Gemini, quotes are chosen by word overlap, not by the model, so a paraphrased claim can get a weaker quote. `Citation.support` shows how weak, and Phase 6 will check it.
+- With Gemini, quotes are chosen by word overlap, not by the model, so a paraphrased claim can get a weaker quote. `Citation.support` shows how weak, and Phase 6 ([06-citation-checks.md](06-citation-checks.md)) checks it.
 - PDF tables interleave columns (a Phase 1 limitation), so a quote can contain a neighbouring cell, e.g. an objective printed beside a unit title.

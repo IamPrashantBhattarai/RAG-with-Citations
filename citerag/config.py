@@ -61,3 +61,15 @@ RERANK_MODEL = os.getenv("CITERAG_RERANK_MODEL", "Alibaba-NLP/gte-reranker-moder
 # If the best dense match (cosine) is below this, the question is treated as not
 # covered by the documents. Calibrated for bge-base; re-check if the model changes.
 MIN_SCORE = float(os.getenv("CITERAG_MIN_SCORE", "0.45"))
+
+# Citation validation (Phase 6)
+VALIDATE = os.getenv("CITERAG_VALIDATE", "1") == "1"  # check every answer's statements
+STRICT = os.getenv("CITERAG_STRICT", "0") == "1"  # remove statements that fail the checks
+# Won a 4-model benchmark on the syllabus, real Gemini answers and RAGTruth
+# (ai_agents/06-citation-checks.md). The large variant
+# (MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli) is slightly more
+# accurate and about 3x slower.
+NLI_MODEL = os.getenv("CITERAG_NLI_MODEL", "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli")
+# A statement counts as supported when the NLI model's P(entailment) for its cited
+# quote or passage reaches this. Calibrated for the model above.
+NLI_THRESHOLD = float(os.getenv("CITERAG_NLI_THRESHOLD", "0.5"))

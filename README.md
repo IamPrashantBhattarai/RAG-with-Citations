@@ -31,7 +31,8 @@ pytest
 | `citerag/retriever.py` | Hybrid retrieval (dense + BM25 keyword search, fused) with a "not in the documents" gate |
 | `citerag/generator.py` | Cited answers with Claude (native Citations: exact quotes per claim) |
 | `citerag/gemini.py` | Free Gemini backend for answers |
-| `citerag/citations.py` | Parse [n] citation markers into exact quotes (validation: Phase 6) |
+| `citerag/citations.py` | Parse [n] citation markers into exact quotes |
+| `citerag/validator.py` | Check each statement against what it cites (uncited claims, numbers/names, local NLI model); strict mode drops unsupported ones |
 | `app.py` | Streamlit UI |
 | `eval/` | Evaluation question set + scoring |
 | `data/` | Your source documents (git-ignored) |

@@ -96,6 +96,8 @@ class InlineCitations:
             uncited, claim = _split_last_sentence(self._text)
             if uncited.strip():
                 self.segments.append(Segment(uncited))
+            else:
+                claim = uncited + claim  # keep the line break before a list item
             self._claim = Segment(claim)
             self._text = ""
         shown = []
@@ -196,9 +198,14 @@ def _numbers(group: str) -> list[int]:
 
 
 def _split_last_sentence(text: str) -> tuple[str, str]:
-    """Split off the last sentence (or list item): it's what a marker cites."""
-    spans = _sentence_spans(text, 0, len(text))
-    if len(spans) <= 1:
+    """Split off the last sentence (or list item) of the last line: it's what a marker cites.
+
+    LLM answers aren't hard-wrapped, so a line break ends a claim too: a
+    heading line like "**2. Weightage**" above the cited sentence isn't part of it.
+    """
+    line = text.rstrip().rfind("\n") + 1
+    spans = _sentence_spans(text, line, len(text))
+    cut = spans[-1][0] if spans else line
+    if cut == 0:
         return "", text
-    cut = spans[-1][0]
     return text[:cut], text[cut:]

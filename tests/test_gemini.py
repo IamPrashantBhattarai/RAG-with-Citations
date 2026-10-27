@@ -83,6 +83,11 @@ def test_answer_has_streamed_text_exact_quotes_and_usage():
     assert a.usage == {"input_tokens": 700, "output_tokens": 65}
 
 
+def test_invalid_markers_are_kept_on_the_answer_for_validation():
+    a = backend([chunk("The pass mark is 45 [1][7].", finish="STOP")])[0].generate("q", HITS)
+    assert a.text == "The pass mark is 45 [1]." and a.invalid_markers == [7]
+
+
 @pytest.mark.parametrize("chunks", [
     [chunk("partial", finish="SAFETY")],
     [chunk(block="PROHIBITED_CONTENT")],

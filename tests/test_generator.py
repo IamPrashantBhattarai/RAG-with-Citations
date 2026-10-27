@@ -77,7 +77,7 @@ class FakeRetriever:
 def make(content=(), hits=HITS, **client_kw):
     client = FakeClient(content, **client_kw)
     backend = ClaudeBackend(client, model="claude-opus-5-5", max_tokens=16000, effort="medium")
-    return Generator(FakeRetriever(hits), backend), client
+    return Generator(FakeRetriever(hits), backend, validate=False), client
 
 
 ANSWER = [

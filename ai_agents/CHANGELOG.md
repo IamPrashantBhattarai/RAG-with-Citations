@@ -2,6 +2,30 @@
 
 Newest first. Each entry links to the phase doc with the full reasoning.
 
+## 2026-10-27
+
+### System — Pushed to GitHub
+- Committed Phase 6 (citation validation), the marker-parsing fix and the build log to `main`. Before pushing: no Anthropic (`sk-ant-…`) or Google (`AIza…`) keys in changed or new files; `.env`, `.venv/`, `.chroma/` and `data/*` (including the user's syllabus PDF) confirmed git-ignored.
+
+### Added — Phase 6: Citation validation ([06-citation-checks.md](06-citation-checks.md))
+- `citerag/validator.py`: each statement of an answer is checked and marked ✅/⚠️ with reasons, plus a summary line. Checks: uncited claims (and whether any retrieved passage supports them), numbers and names missing from the cited passage, support by a local NLI model (cited quotes and passages), invalid `[n]` markers.
+- Strict mode (`CITERAG_STRICT=1` / `--strict`) removes the ⚠️ statements and renumbers the remaining citations; it doesn't stream.
+- `Answer.validation`, `Answer.invalid_markers` (Gemini's dropped markers are now kept). `Generator(validate=, strict=)`.
+- CLI: `Checks:` section after the sources; `--strict`, `--no-validate`; the NLI model loads before the answer streams.
+- Config: `VALIDATE` (on), `STRICT` (off), `NLI_MODEL`, `NLI_THRESHOLD=0.5`.
+- Tests: `test_validator.py` (27) plus 5 in citations/Gemini; 136 total.
+
+### Decided — NLI model `MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli`, threshold 0.5
+- Benchmarked 4 models on RAGTruth QA (795 sentences), 81 hand-labelled syllabus claims and 12 real Gemini answers. With the number/name check: syllabus balanced accuracy 0.953, 3/41 real statements wrongly warned, 0.6 s per answer. tasksource-small was best on RAGTruth (0.752 vs 0.708) but failed on tables; the large MoritzLaurer model was slightly more accurate but about 3× slower.
+- Fault injection: 10/10 errors edited into real answers were flagged.
+
+### Fixed — Phase 5 marker parsing ([06-citation-checks.md](06-citation-checks.md#step-5--live-test-and-fault-injection-2026-10-27-gemini-free-tier))
+- A `[n]` marker now cites only the last sentence on its own line, not a heading line above it.
+- Whitespace before a cited list item is kept in the claim (a first version dropped it); new test: the segments always contain every character of the answer.
+
+### System
+- Downloaded 4 NLI models for the benchmark (~2.5 GB in the Hugging Face cache): MoritzLaurer base (used), MoritzLaurer large, tasksource/deberta-small-long-nli, cross-encoder/nli-deberta-v3-base. Downloaded the RAGTruth test split (3.9 MB) to the session scratchpad. No new Python packages.
+
 ## 2026-10-26
 
 ### System — Pushed to GitHub
