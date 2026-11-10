@@ -32,6 +32,17 @@ GEMINI_FALLBACK_MODELS = [
     if m.strip()
 ]
 
+# PDF parsing (Phase 9)
+# "docling": layout-aware (reading order, headings, tables as one line per row); falls back
+# to "pypdf" (plain text extraction) when Docling isn't installed or fails on a file.
+PDF_PARSER = os.getenv("CITERAG_PDF_PARSER", "docling")
+# "text": formulas as the PDF's own text. "latex": Docling's formula model writes LaTeX, kept
+# only when it agrees with the PDF text (it misread 3 of 5 formulas in the Attention paper and
+# adds about 20 s per formula on a laptop; see ai_agents/09-layout-parsing.md).
+PDF_FORMULAS = os.getenv("CITERAG_PDF_FORMULAS", "text")
+# Parsed pages, keyed by file content and parser settings, so unchanged files aren't parsed again.
+PARSE_CACHE_DIR = Path(os.getenv("CITERAG_PARSE_CACHE_DIR", ROOT_DIR / ".cache" / "parsed"))
+
 # Embeddings / vector store
 # bge-base won a 5-model benchmark (see ai_agents/03-vector-store.md). It reads up
 # to 512 tokens and shares bge-small's tokenizer (all-MiniLM-L6-v2 truncates at 256).

@@ -2,6 +2,8 @@
 
 **Status:** ✅ Done (2026-10-26) · Code: `citerag/loaders.py` · Tests: `tests/test_loaders.py` (20 passing)
 
+> **Update 2026-11-11 (Phase 9):** PDFs are now read with Docling's layout model by default; the pypdf path and cleanup described here are the fallback (and `CITERAG_PDF_PARSER=pypdf`). See [09-layout-parsing.md](09-layout-parsing.md).
+
 ## Goal
 
 Turn PDF, TXT and Markdown files into a list of `Page` records (text + file name + page number), with the text cleaned up enough that the chunker sees normal prose and citations point at the right page.

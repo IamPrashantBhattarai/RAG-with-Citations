@@ -23,7 +23,7 @@ question ─► search (meaning + keywords) ─► rerank ─► top 5 passages
 
 | Stage | What happens | Code |
 |---|---|---|
-| Load | PDF, TXT and Markdown files are read page by page. PDF text is cleaned: repeated headers and footers are removed, hyphenated words are rejoined, and paragraphs are rebuilt. Page numbers match what a PDF viewer shows. | `citerag/loaders.py` |
+| Load | PDF, TXT and Markdown files are read page by page. PDFs go through Docling's layout model: reading order across columns, headings, and tables written one row per line with each value next to its column name. Page headers, footers and text inside figures are dropped. Parsed files are cached, so only new or changed files are parsed again. If Docling can't read a file, pypdf does. Page numbers match what a PDF viewer shows. | `citerag/loaders.py`, `citerag/layout.py` |
 | Chunk | Pages are split into passages of about 384 tokens, along sentence and section boundaries, with a small overlap so a fact isn't cut in half. | `citerag/chunker.py` |
 | Embed and store | Each passage is turned into a vector with `BAAI/bge-base-en-v1.5` and saved in a local ChromaDB index. Re-indexing only re-embeds files that changed. | `citerag/store.py` |
 | Search | Two searches find candidates. One matches meaning (vectors) and the other matches exact words, names and codes (BM25). Their results are merged, and a reranker model (`gte-reranker-modernbert-base`) reorders the top 10. If nothing is close enough to the question, no LLM is called. | `citerag/retriever.py` |
@@ -36,7 +36,7 @@ The models and settings were chosen, or later confirmed, by benchmarks on public
 ## Requirements
 
 - Python 3.12 (the version this was built and tested with)
-- About 1.4 GB of disk space for the local models. They download automatically the first time they are used: embeddings 419 MB, reranker 574 MB, NLI checker 364 MB.
+- About 2.4 GB of disk space for the local models. They download automatically the first time they are used: embeddings 419 MB, reranker 574 MB, NLI checker 364 MB, PDF layout 328 MB and table structure 683 MB (Docling). The optional formula model (`CITERAG_PDF_FORMULAS=latex`) adds 1.2 GB.
 - An API key for the LLM, either one of:
   - **Gemini** (free): get a key at https://aistudio.google.com/apikey. On the free tier, Google may use your prompts to improve its products, so don't use it with private documents. `gemini-3.6-flash` allows 20 requests a day; after that, the app switches to `gemini-3.5-flash-lite` on its own.
   - **Claude** (paid): an Anthropic API key. It gives exact quotes chosen by the model itself.
@@ -132,6 +132,8 @@ All settings live in `citerag/config.py` and can be overridden in `.env`. The on
 | `CITERAG_MIN_SCORE` | `0.45` | Below this similarity, the question is treated as "not in the documents" |
 | `CITERAG_VALIDATE` | `1` | `0` skips the citation checks |
 | `CITERAG_STRICT` | `0` | `1` removes unsupported statements |
+| `CITERAG_PDF_PARSER` | `docling` | `pypdf` reads PDFs without the layout model (faster, but tables and columns come out as run-on text) |
+| `CITERAG_PDF_FORMULAS` | `text` | `latex` writes formulas as LaTeX where the formula model agrees with the PDF text (1.2 GB model, about 20 s per formula) |
 | `CITERAG_CHUNK_SIZE` | `384` | Tokens per chunk (changing it re-embeds everything on the next index) |
 | `CITERAG_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | Changing it needs `python -m citerag.store data/ --reset` |
 
@@ -176,6 +178,7 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 | `app.py` | Streamlit web app |
 | `citerag/config.py` | All settings, overridable through `.env` |
 | `citerag/loaders.py` | Read PDF/TXT/MD into pages, clean PDF text |
+| `citerag/layout.py` | Layout-aware PDF parsing with Docling: tables as rows, checked formulas, parse cache |
 | `citerag/chunker.py` | Split pages into chunks with stable IDs |
 | `citerag/store.py` | Embeddings and the ChromaDB index |
 | `citerag/retriever.py` | Hybrid search, reranking, the "not in the documents" cutoff |
@@ -199,7 +202,8 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 ## Limitations
 
 - **No OCR:** scanned PDFs without a text layer can't be read.
-- **Tables and multi-column PDFs** come out as plain text, sometimes in the wrong order. Values at the end of table rows are the most common miss.
+- **Tables:** each row is now one line naming its columns, but a question can still use different words from the table ("parameters" vs the header "params ×106"), and that row is still missed.
+- **Formulas** keep the PDF's own text ("softmax( QKT √dk )V"). Docling's LaTeX model misread 3 of 5 formulas in the Attention paper, so it is off by default.
 - **Questions spanning two documents** can end up with all 5 passages from one of them.
 - **One question at a time:** follow-up questions don't see earlier answers.
 - **The checks are a signal, not proof:** they catch most wrong numbers and names, but a swapped term that also appears in the cited passage can pass.
@@ -208,6 +212,6 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 
 The project was built in phases, each with its own write-up of what was done, why, and what was measured:
 
-0. Setup · 1. Loaders · 2. Chunking · 3. Embeddings and index · 4. Retrieval · 5. Cited answers · 6. Citation checks · 7. Web app · 8. Evaluation and tuning
+0. Setup · 1. Loaders · 2. Chunking · 3. Embeddings and index · 4. Retrieval · 5. Cited answers · 6. Citation checks · 7. Web app · 8. Evaluation and tuning · 9. Layout-aware PDF parsing
 
 See [`ai_agents/README.md`](ai_agents/README.md) and the dated [`ai_agents/CHANGELOG.md`](ai_agents/CHANGELOG.md).

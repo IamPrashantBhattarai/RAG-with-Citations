@@ -7,7 +7,10 @@ page 1 for text files. Text is cleaned here so later steps see plain prose:
   ligatures like "ﬁ", zero-width characters), strip trailing spaces, and
   collapse runs of blank lines. Blank lines are kept — the chunker uses them
   as paragraph breaks.
-- PDFs also get: running headers/footers and bare page numbers removed,
+- PDFs are read with Docling's layout model by default (citerag/layout.py,
+  Phase 9): reading order, headings, tables as one line per row. If Docling
+  isn't installed or fails on a file, pypdf reads it instead, and that text
+  also gets: running headers/footers and bare page numbers removed,
   hyphenated line breaks rejoined ("informa-\\ntion" -> "information"),
   and paragraph breaks inferred, because pypdf rarely emits blank lines.
 
@@ -31,12 +34,15 @@ from typing import Iterable
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
+from citerag import config, layout
+
 log = logging.getLogger(__name__)
 # pypdf logs a warning for every minor structural defect it repairs; too noisy.
 logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf"}
+PDF_PARSERS = ("docling", "pypdf")
 
 EDGE_LINES = 2  # lines at the top and bottom of a page checked for headers/footers
 REPEAT_MIN_PAGES = 3  # a header/footer must repeat on at least this many pages...
@@ -85,27 +91,28 @@ def load_text(path: str | Path, source: str | None = None) -> list[Page]:
     return [Page(text, source, 1)]
 
 
-def load_pdf(path: str | Path, source: str | None = None) -> list[Page]:
-    """Load a PDF, one `Page` per physical page (numbered as a PDF viewer shows them)."""
+def load_pdf(path: str | Path, source: str | None = None, parser: str | None = None) -> list[Page]:
+    """Load a PDF, one `Page` per physical page (numbered as a PDF viewer shows them).
+
+    `parser` is "docling" or "pypdf" (default: config.PDF_PARSER).
+    """
     path = Path(path)
     source = source or path.name
+    parser = parser or config.PDF_PARSER
+    if parser not in PDF_PARSERS:
+        raise ValueError(f"CITERAG_PDF_PARSER must be one of {PDF_PARSERS}, not {parser!r}")
     try:
-        reader = PdfReader(path)
+        reader = PdfReader(path)  # also for Docling: a cheap check that the file opens
         if reader.is_encrypted and not reader.decrypt(""):
             raise LoaderError(f"{source}: PDF is password-protected")
-        raw_pages = []
-        for i, page in enumerate(reader.pages, start=1):
-            try:
-                raw_pages.append(page.extract_text() or "")
-            except Exception as e:  # one broken page shouldn't lose the document
-                log.warning("%s: could not read page %d (%s), skipped", source, i, e)
-                raw_pages.append("")
+        texts = _docling_pages(path, source) if parser == "docling" else None
+        if texts is None:
+            texts = clean_pdf_pages(_pypdf_pages(reader, source))
     except LoaderError:
         raise
     except (PdfReadError, OSError, ValueError) as e:
         raise LoaderError(f"{source}: cannot read PDF ({e})") from e
 
-    texts = clean_pdf_pages(raw_pages)
     pages = [Page(t, source, i) for i, t in enumerate(texts, start=1) if _has_text(t)]
     empty = [i for i, t in enumerate(texts, start=1) if not _has_text(t)]
     if not pages:
@@ -113,6 +120,36 @@ def load_pdf(path: str | Path, source: str | None = None) -> list[Page]:
     elif empty:
         log.warning("%s: skipped %d page(s) with no text: %s", source, len(empty), _ranges(empty))
     return pages
+
+
+def _pypdf_pages(reader: PdfReader, source: str) -> list[str]:
+    raw_pages = []
+    for i, page in enumerate(reader.pages, start=1):
+        try:
+            raw_pages.append(page.extract_text() or "")
+        except Exception as e:  # one broken page shouldn't lose the document
+            log.warning("%s: could not read page %d (%s), skipped", source, i, e)
+            raw_pages.append("")
+    return raw_pages
+
+
+_warned_no_docling = False
+
+
+def _docling_pages(path: Path, source: str) -> list[str] | None:
+    """Docling's page texts, or None (with a warning) to fall back to pypdf."""
+    global _warned_no_docling
+    if not layout.available():
+        if not _warned_no_docling:
+            log.warning("Docling is not installed, so PDFs are read with pypdf "
+                        "(pip install docling, or set CITERAG_PDF_PARSER=pypdf)")
+            _warned_no_docling = True
+        return None
+    try:
+        return [clean_text(t) for t in layout.parse_pdf(path)]
+    except layout.LayoutError as e:
+        log.warning("%s: layout parsing failed (%s), read with pypdf instead", source, e)
+        return None
 
 
 def load_dir(path: str | Path, recursive: bool = True) -> list[Page]:

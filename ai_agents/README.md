@@ -15,6 +15,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | [06-citation-checks.md](06-citation-checks.md) | Checking each statement against its citations (uncited claims, numbers/names, local NLI model), strict mode | ✅ Done |
 | [07-ui.md](07-ui.md) | Streamlit UI: documents sidebar, streamed answers, formulas, sources with highlighted quotes and PDF pages, checks; safety and localhost-only | ✅ Done (formulas added 2026-11-10) |
 | [08-evaluation.md](08-evaluation.md) | Question set on the user's documents, retrieval and answer benchmarks, reranker switched on, citation checks tuned on real answers | ✅ Done |
+| [09-layout-parsing.md](09-layout-parsing.md) | Layout-aware PDF parsing with Docling (benchmarked against pypdf and Marker): tables as one line per row, checked formulas, parse cache, pypdf fallback | ✅ Done |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
 
@@ -31,6 +32,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | 6 | Citation validation | ✅ |
 | 7 | Streamlit UI | ✅ |
 | 8 | Evaluation + tuning | ✅ |
+| 9 | Layout-aware PDF parsing (first "industry grade" step; next: OCR, more formats) | ✅ |
 
 ## Key decisions
 
@@ -46,3 +48,4 @@ A record of every step taken to build this project: **what** was done and **why*
 10. **A plain Streamlit page, reachable only from this computer.** Every citation opens to its passage (quote highlighted) and the cited PDF page; unsupported statements are highlighted. LLM and document text is HTML-escaped before rendering, formulas in answers are rendered (2026-11-10) while prices like "$5" stay text, and `server.address = "localhost"` replaces Streamlit's listen-on-every-interface default. ([07-ui.md](07-ui.md))
 11. **Phase 8 measured everything on the user's documents** (78 questions over the syllabus and two papers, exact-quote gold labels). The reranker is now on by default, reranking the top 10: right passage first 0.56 → 0.84, answers 50 → 53/55 correct, and no wrong answers in 124. Chunk size 384, k = 5, the 0.45 gate and the 0.5 NLI threshold were confirmed. ([08-evaluation.md](08-evaluation.md))
 12. **Citation checks tuned on real answers:** lead-ins removed, the question given to the NLI model as context, LaTeX turned into plain text, bare list items checked by name. True statements wrongly warned 28% → 8%; deliberately altered statements caught 98% → 93%. ([08-evaluation.md](08-evaluation.md))
+13. **PDFs are read with Docling's layout model**, chosen over Marker (restricted model licence, a llama.cpp server for 2.x, dropped sentences in its output) and benchmarked against pypdf on the Phase 8 questions. Tables are written one row per line with each value next to its column name, which beat Markdown tables. Hybrid search's top-5 hit rate rose from 0.89 to 0.96; with the reranker it's level at 0.97. Formulas keep the PDF's text by default, because Docling's LaTeX model misread 3 of 5. Parses are cached by file content, and pypdf takes over if Docling fails. ([09-layout-parsing.md](09-layout-parsing.md))

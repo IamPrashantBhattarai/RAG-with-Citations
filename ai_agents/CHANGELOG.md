@@ -2,6 +2,32 @@
 
 Newest first. Each entry links to the phase doc with the full reasoning.
 
+## 2026-11-11
+
+### Added — Phase 9: Layout-aware PDF parsing ([09-layout-parsing.md](09-layout-parsing.md))
+- `citerag/layout.py` (new): PDFs go through Docling's layout model (reading order, headings, table structure; OCR off). Each page becomes Markdown with Docling's serializer, with two parts replaced:
+  - **Tables:** one `- header: value; …` line per row, caption first. Stacked headers are joined, and merged cells are written once.
+  - **Formulas:** the PDF's own text, so a formula is never dropped. With `CITERAG_PDF_FORMULAS=latex`, the formula model's LaTeX is kept only when it has the same letters and digits as the PDF text.
+- **Parse cache** in `.cache/parsed/`, keyed by file bytes plus parser version, Docling version and formula mode. A rescan only parses new or changed files.
+- `citerag/loaders.py`: `load_pdf(..., parser=)` still checks that the file opens and isn't password-protected with pypdf. pypdf reads the file instead if Docling isn't installed (warned once) or fails on it (warned per file).
+- `citerag/config.py`: `PDF_PARSER` (`docling` | `pypdf`), `PDF_FORMULAS` (`text` | `latex`), `PARSE_CACHE_DIR`.
+- **Chosen by benchmark** on the 4 PDFs in `data/` with the Phase 8 questions. Docling with rows: hybrid R@5 0.89 → 0.96; reranker R@5 level at 0.97 (R@1 0.84 → 0.79, 3 questions, not significant). Rows beat Markdown tables on every measure.
+- **Why not Marker:** 1.10.2 scored reranker R@5 0.84, dropped sentences and wrote numbers as LaTeX. 2.1 needs a system-wide llama.cpp server, and its model weights are restricted for commercial use. Marker was clearly better at formula LaTeX (4/5 vs Docling's 2/5).
+- **Answers** (`gemini-3.5-flash-lite`, same settings as Phase 8): 52/55 correct (Phase 8: 53), 0 wrong. The checker's warnings on correct answers fell 7 → 4, because table answers no longer trip it.
+- **Speed:** 0.24 s per page after a 2.3 s model load. The formula model takes about 23 s per formula, so it's off by default.
+- `eval/questions.json`: 12 quotes that copied pypdf artifacts were rewritten in Docling's form. One figure-label quote was removed (Docling drops text inside figures).
+- Tests: `test_layout.py` (10, including a real Docling parse) and 4 new in `test_loaders.py` (the old ones now pin pypdf). 211 passing in total.
+
+### Fixed — while building Phase 9
+- The LaTeX check at first rejected the correct two-line PE formula, for two reasons: the `aligned` environment's name counted as letters, and `\\PE` was read as the command `\PE`. Both fixed, and PE is now a test case.
+- A benchmark script named `profile.py` shadowed Python's `profile` module (torch imports `cProfile`, which imports `profile`), which deadlocked runs and made Docling look 30× slower than it is. Scratch scripts now run with `python -I`.
+
+### System
+- `docling==2.146.0` installed with `uv pip install --exclude-newer 2026-11-03` (packages resolved as of a week earlier; Docling ships almost daily). It adds 48 packages, including `torchvision 0.29.2`, and moves `huggingface-hub` 2.3.0 → 1.33.0. torch, transformers, sentence-transformers and chromadb are unchanged.
+- `requirements.txt`: `docling>=2.146,<3`. `.gitignore`: `.cache/`. `.env.example`: the three new settings.
+- New local models: Docling layout 328 MB and table structure 683 MB. The formula model (1.2 GB) only downloads in `latex` mode.
+- The app's index re-embeds every PDF on the next **Rescan**, because each file's fingerprint is built from its text.
+
 ## 2026-11-10
 
 ### Fixed — Formulas in answers are rendered ([07-ui.md](07-ui.md#step-7--formulas-2026-11-10))

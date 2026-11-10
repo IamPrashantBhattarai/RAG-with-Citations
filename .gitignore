@@ -10,3 +10,4 @@ data/*
 .streamlit/secrets.toml
 eval/.cache/
 eval/runs/
+.cache/

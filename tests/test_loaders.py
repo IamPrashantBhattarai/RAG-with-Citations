@@ -3,6 +3,7 @@ import logging
 import pytest
 from pypdf import PdfReader, PdfWriter
 
+from citerag import config, layout, loaders
 from citerag.chunker import Chunker
 from citerag.loaders import (
     LoaderError,
@@ -16,6 +17,13 @@ from citerag.loaders import (
     load_pdf,
     load_text,
 )
+
+
+@pytest.fixture(autouse=True)
+def pypdf_by_default(monkeypatch, tmp_path):
+    """These tests check pypdf's text cleanup; the Docling path is tested on its own below."""
+    monkeypatch.setattr(config, "PDF_PARSER", "pypdf")
+    monkeypatch.setattr(config, "PARSE_CACHE_DIR", tmp_path / "parsed")
 
 
 def make_pdf(path, pages):
@@ -201,6 +209,54 @@ def test_corrupt_pdf_raises(tmp_path):
     bad.write_bytes(b"not a pdf at all")
     with pytest.raises(LoaderError, match="cannot read PDF"):
         load_pdf(bad)
+
+
+# -- Docling (Phase 9) -----------------------------------------------------------
+
+
+def test_docling_pages_are_cleaned_and_numbered(tmp_path, monkeypatch):
+    monkeypatch.setattr(layout, "parse_pdf", lambda path: ["## Intro\n\nﬁrst  page text", "", "- Model: big; BLEU: 28.4"])
+    pages = load_pdf(make_pdf(tmp_path / "r.pdf", [body(1), [], body(3)]), parser="docling")
+    assert [(p.page, p.text) for p in pages] == [(1, "## Intro\n\nfirst  page text"), (3, "- Model: big; BLEU: 28.4")]
+
+
+def test_falls_back_to_pypdf_when_docling_fails_or_is_missing(tmp_path, monkeypatch, caplog):
+    pdf = make_pdf(tmp_path / "r.pdf", [body(1)])
+    expected = [p.text for p in load_pdf(pdf, parser="pypdf")]
+
+    def broken(path):
+        raise layout.LayoutError("bad page tree")
+
+    monkeypatch.setattr(layout, "parse_pdf", broken)
+    with caplog.at_level(logging.WARNING):
+        assert [p.text for p in load_pdf(pdf, parser="docling")] == expected
+    assert "layout parsing failed (bad page tree), read with pypdf instead" in caplog.text
+
+    monkeypatch.setattr(layout, "available", lambda: False)
+    monkeypatch.setattr(loaders, "_warned_no_docling", False)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        load_pdf(pdf, parser="docling")
+        load_pdf(pdf, parser="docling")
+    assert [p.text for p in load_pdf(pdf, parser="docling")] == expected
+    assert caplog.text.count("Docling is not installed") == 1  # said once, not per file
+
+
+def test_password_check_comes_before_docling(tmp_path, monkeypatch):
+    plain = make_pdf(tmp_path / "plain.pdf", [body(1)])
+    writer = PdfWriter(clone_from=PdfReader(plain))
+    writer.encrypt(user_password="secret", algorithm="RC4-128")
+    locked = tmp_path / "locked.pdf"
+    with open(locked, "wb") as fh:
+        writer.write(fh)
+    monkeypatch.setattr(layout, "parse_pdf", lambda path: pytest.fail("Docling should not be called"))
+    with pytest.raises(LoaderError, match="password"):
+        load_pdf(locked, parser="docling")
+
+
+def test_unknown_pdf_parser_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="CITERAG_PDF_PARSER"):
+        load_pdf(make_pdf(tmp_path / "r.pdf", [body(1)]), parser="pdfminer")
 
 
 # -- folders and dispatch --------------------------------------------------------
