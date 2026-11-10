@@ -9,6 +9,12 @@ a document could contain instructions ("output this HTML…"). Everything from
 the LLM or a document is HTML-escaped before it is rendered with
 `unsafe_allow_html`, and markdown images are removed (an image URL would be
 fetched as soon as the answer is shown).
+
+Formulas: math the LLM writes as $…$ or $$…$$ is rendered by Streamlit's
+KaTeX (which runs untrusted: no \\href, \\url or \\html* commands). Any other
+"$" (prices: "$5 and $10") is escaped. Inside a formula "<" and ">" become
+\\lt and \\gt, so a formula can't hold an HTML tag even if Streamlit split
+the text differently from us.
 """
 
 from __future__ import annotations
@@ -29,6 +35,13 @@ _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _LEAD_RE = re.compile(r"[ \t]*(?:[-*•]|\d{1,3}[.)]|#{1,6})[ \t]+")  # list bullet / heading marker
 _TRAILING_MARKERS_RE = re.compile(r"(?:[ \t]*\[\d+\])+")
 _MD_SPECIAL_RE = re.compile(r"([\\`*_{}\[\]()#+\-.!|<>~$:])")
+_DOLLAR_RE = re.compile(r"\\*\$")  # "$", or "\$" the LLM escaped itself
+# $$…$$ (may span lines, not a blank one), or $…$ on one line with pandoc's rules:
+# no space just inside the dollars and no digit right after, so "$5 and $10" isn't math.
+_MATH_RE = re.compile(
+    r"(?<![\\$])\$\$(?P<display>(?:[^$\n]|\n(?![ \t]*\n))+?)\$\$(?!\$)"
+    r"|(?<![\\$])\$(?P<inline>[^\s$][^$\n]*?(?<![\s\\]))\$(?![\d$])"
+)
 WARN_STYLE = "background: rgba(250, 204, 21, 0.3); border-radius: 3px; padding: 0 2px"
 QUOTE_STYLE = "background: rgba(250, 204, 21, 0.45); color: inherit; padding: 0 1px"
 
@@ -37,9 +50,10 @@ def answer_markdown(answer: Answer) -> str:
     """The answer as markdown, with warned statements highlighted.
 
     A warned statement gets a yellow background with its reasons as a
-    tooltip. Markers become superscripts.
+    tooltip. Markers become superscripts and formulas are rendered.
     """
     text = answer.text
+    math = _math_spans(text)
     warned = []
     v = answer.validation
     if v is not None and v.warnings:
@@ -50,22 +64,31 @@ def answer_markdown(answer: Answer) -> str:
                 start = lead.end()  # keep "- " outside, or the list item breaks
             if markers := _TRAILING_MARKERS_RE.match(text, end):
                 end = markers.end()
+            for m_start, m_end, _ in math:  # never cut a formula in two
+                if m_start < start < m_end:
+                    start = m_start
+                if m_start < end < m_end:
+                    end = m_end
             warned.append((start, end, c.issues))
     out, i = [], 0
     for start, end, issues in sorted(warned):
         if start < i:
             continue
         tip = html.escape("; ".join(issues), quote=True)
-        out.append(_escape(text[i:start]))
-        out.append(f'<span style="{WARN_STYLE}" title="{tip}">{_escape(text[start:end])}</span>')
+        out.append(_render(text, i, start, math, _escape))
+        out.append(f'<span style="{WARN_STYLE}" title="{tip}">{_render(text, start, end, math, _escape)}</span>')
         i = end
-    out.append(_escape(text[i:]))
-    return _MARKER_RE.sub(r"<sup>[\1]</sup>", "".join(out))
+    out.append(_render(text, i, len(text), math, _escape))
+    return "".join(out)
 
 
 def streaming_markdown(text: str) -> str:
-    """Partial answer while it streams (rendered without HTML)."""
-    return _IMAGE_RE.sub(r"\1", text).replace("$", r"\$")
+    """Partial answer while it streams (rendered without HTML).
+
+    A formula shows as LaTeX source until its closing "$" arrives.
+    """
+    return _render(text, 0, len(text), _math_spans(text),
+                   lambda s: _DOLLAR_RE.sub(r"\\$", _IMAGE_RE.sub(r"\1", s)))
 
 
 def passage_html(text: str, start: int, end: int) -> str:
@@ -112,8 +135,55 @@ def escape_md(text: str) -> str:
 
 
 def _escape(text: str) -> str:
-    """LLM markdown kept as markdown, but no raw HTML, no images and no "$" math."""
-    return _IMAGE_RE.sub(r"\1", html.escape(text, quote=False)).replace("$", r"\$")
+    """LLM markdown (no formulas in it) kept as markdown, but no raw HTML, no images, no "$" math."""
+    text = _DOLLAR_RE.sub(r"\\$", _IMAGE_RE.sub(r"\1", html.escape(text, quote=False)))
+    return _MARKER_RE.sub(r"<sup>[\1]</sup>", text)
+
+
+def _math_spans(text: str) -> list[tuple[int, int, str]]:
+    """(start, end, markdown) for each formula in `text`, in order.
+
+    $$…$$ on a line of its own becomes a display block, kept at the line's
+    indent so it stays inside a list item. Anywhere else it is inline math in
+    \\displaystyle (Streamlit draws $$…$$ in running text small, like $…$).
+    """
+    spans = []
+    for m in _MATH_RE.finditer(text):
+        if m["inline"] is not None:
+            spans.append((m.start(), m.end(), f"${_safe_tex(m['inline'])}$"))
+            continue
+        tex = _safe_tex(m["display"].strip())
+        if not tex or tex.endswith("\\"):
+            continue
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        line_end = text.find("\n", m.end())
+        indent = text[line_start:m.start()]
+        rest = text[m.end():len(text) if line_end < 0 else line_end]
+        if not indent.strip() and not rest.strip():
+            body = "\n".join(indent + line.strip() for line in tex.split("\n"))
+            spans.append((m.start(), m.end(), f"$$\n{body}\n{indent}$$"))
+        else:
+            spans.append((m.start(), m.end(), rf"$\displaystyle {' '.join(tex.split())}$"))
+    return spans
+
+
+def _safe_tex(tex: str) -> str:
+    return tex.replace("<", r"\lt ").replace(">", r"\gt ")
+
+
+def _render(text: str, start: int, end: int, math: list[tuple[int, int, str]], escape) -> str:
+    """text[start:end] with its formulas as markdown math and `escape` applied to the rest.
+
+    start and end never fall inside a formula.
+    """
+    out, i = [], start
+    for m_start, m_end, md in math:
+        if m_start >= start and m_end <= end:
+            out.append(escape(text[i:m_start]))
+            out.append(md)
+            i = m_end
+    out.append(escape(text[i:end]))
+    return "".join(out)
 
 
 # -- documents ---------------------------------------------------------------------

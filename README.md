@@ -194,7 +194,7 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 
 - Your documents, the index and the models stay on your computer. Only the question and the 5 retrieved passages (with their file names, pages and section titles) are sent to the LLM provider you choose.
 - On Gemini's free tier, Google may use prompts and answers to improve its products.
-- LLM and document text is HTML-escaped before it is shown, so a document can't inject code into the page.
+- LLM and document text is HTML-escaped before it is shown, so a document can't inject code into the page. Formulas (`$…$`, `$$…$$`) are rendered with KaTeX in untrusted mode.
 
 ## Limitations
 

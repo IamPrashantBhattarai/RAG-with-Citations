@@ -9,7 +9,7 @@ from streamlit.testing.v1 import AppTest
 from citerag import ui
 from citerag.generator import GenerationError
 from citerag.store import IndexReport
-from citerag.validator import Validator
+from citerag.validator import Check, Validation, Validator
 from tests.test_validator import HITS, FakeBackend, FakeNLI, answer, validate
 
 APP = str(Path(__file__).parent.parent / "app.py")
@@ -36,6 +36,59 @@ def test_answer_html_and_images_from_the_llm_are_not_rendered():
     assert "<img" not in md and "&lt;img" in md
     assert "evil.example" not in md and "logo" in md
     assert r"\$5 and \$6" in md
+
+
+ATTENTION = (
+    "The formula for Scaled Dot-Product Attention [1] is:\n\n"
+    r"$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$"
+    "\n\nWhere:\n\n- $Q$, $K$, and $V$ are the packed queries, keys and values [2].\n"
+    "- $d_k$ is the dimension of the queries and keys [2]."
+)
+
+
+def test_formulas_are_rendered_as_math():
+    md = ui.answer_markdown(answer(ATTENTION))
+    # A $$…$$ line becomes a display block; inline $…$ is kept; markers still become superscripts.
+    block = ("is:\n\n$$\n" r"\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V"
+             "\n$$\n\nWhere:")
+    assert block in md
+    assert "- $Q$, $K$, and $V$ are" in md and "- $d_k$ is" in md
+    assert r"\$" not in md and "<sup>[1]</sup>" in md and "<sup>[2]</sup>" in md
+    assert block in ui.streaming_markdown(ATTENTION)
+
+
+def test_dollar_amounts_are_not_math():
+    for text in ("$5 and $10", "between $5-$10", "costs $5, or $50 a year", r"pay \$5 or \$6"):
+        md = ui.answer_markdown(answer(text))
+        assert md.count(r"\$") == 2 and md.count("$") == 2, md
+    assert ui.answer_markdown(answer("$5 and $x$")) == r"\$5 and $x$"
+
+
+def test_display_math_in_running_text_or_a_list_item():
+    md = ui.answer_markdown(answer(r"It is $$\frac{a}{b}$$ here [1]."))
+    assert md == r"It is $\displaystyle \frac{a}{b}$ here <sup>[1]</sup>."
+    md = ui.answer_markdown(answer("- Formula:\n\n  $$\n  a^2 +\n  b^2\n  $$\n- next"))
+    assert "\n\n  $$\n  a^2 +\n  b^2\n  $$\n- next" in md  # stays inside the list item
+
+
+def test_formulas_cannot_carry_html_or_markers():
+    md = ui.answer_markdown(answer('$a <img src=x onerror="alert(1)"> b [1]$'))
+    assert "<" not in md and r"$a \lt img src=x onerror=" in md and "b [1]$" in md
+
+
+def test_streaming_shows_a_formula_once_it_is_closed():
+    assert ui.streaming_markdown("where $d_k") == r"where \$d_k"
+    assert ui.streaming_markdown("where $d_k$ is") == "where $d_k$ is"
+    assert ui.streaming_markdown("$$x") == r"\$\$x"
+
+
+def test_highlight_never_cuts_a_formula():
+    a = answer("So $a = 1. b = 2$ holds.")
+    plain = "".join(s.text for s in a.segments)
+    start = plain.index("b = 2")  # a statement starting inside the formula
+    a.validation = Validation([Check("b = 2 holds.", [], "warn", ["unsupported"], start=start, end=len(plain))])
+    md = ui.answer_markdown(a)
+    assert md.startswith(f'So <span style="{ui.WARN_STYLE}" title="unsupported">$a = 1. b = 2$ holds.</span>')
 
 
 def test_passage_html_highlights_the_quote_on_one_line():

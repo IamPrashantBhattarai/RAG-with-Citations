@@ -2,6 +2,14 @@
 
 Newest first. Each entry links to the phase doc with the full reasoning.
 
+## 2026-11-10
+
+### Fixed — Formulas in answers are rendered ([07-ui.md](07-ui.md#step-7--formulas-2026-11-10))
+- Asked for the attention formula, the answer was correct but showed as raw LaTeX (`$$\text{Attention}(Q, K, V) = …$$`), because every `$` was escaped.
+- `citerag/ui.py`: `$…$` and `$$…$$` are now passed to Streamlit's KaTeX. A `$$` line becomes a display block; `$$` in running text becomes `\displaystyle`. Other `$` are still escaped (pandoc's rules, so "$5 and $10" stays text), and a `\$` the LLM escaped itself no longer turns back into a math delimiter. `<`/`>` inside a formula become `\lt`/`\gt`. Highlights never cut a formula, and `[n]` inside one isn't made a superscript. Streaming uses the same code.
+- Checked in headless Chrome: formulas render, prices stay text, injected HTML and `\href{javascript:…}` do nothing, no console errors.
+- Tests: 6 new in `test_ui.py`. 197 passing in total.
+
 ## 2026-10-27
 
 ### Docs — README rewritten
