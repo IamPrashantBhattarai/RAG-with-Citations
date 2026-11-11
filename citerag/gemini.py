@@ -21,7 +21,7 @@ from typing import Callable
 
 from citerag import config
 from citerag.citations import InlineCitations
-from citerag.generator import Answer, GenerationError, declined, page_label
+from citerag.generator import Answer, GenerationError, declined, location
 from citerag.store import Hit
 
 log = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ RETRY = {"attempts": 2, "initial_delay": 2.0, "max_delay": 8.0}  # per model
 def build_prompt(question: str, hits: list[Hit]) -> str:
     parts = ["Source excerpts:"]
     for i, h in enumerate(hits, 1):
-        where = f"{h.source}, {page_label(h)}" + (f", section: {h.section}" if h.section else "")
+        where = location(h.source, h.page_start, h.page_end) + (f", section: {h.section}" if h.section else "")
         parts.append(f"[{i}] ({where})\n{h.text}")
     parts.append(f"Question: {question}")
     return "\n\n".join(parts)

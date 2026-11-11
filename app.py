@@ -15,7 +15,7 @@ from pathlib import Path
 import streamlit as st
 
 from citerag import config, ui
-from citerag.generator import Answer, GenerationError, Generator, make_backend, page_label
+from citerag.generator import Answer, GenerationError, Generator, make_backend, pages_label
 from citerag.loaders import SUPPORTED_EXTENSIONS, LoaderError, load_dir, load_file
 from citerag.retriever import Retriever
 from citerag.store import EmbeddingMismatchError, Store
@@ -176,7 +176,7 @@ def show_answer(answer: Answer, turn: int) -> None:
 
     hits = {h.chunk_id: h for h in answer.hits}
     for c in answer.citations:
-        with st.expander(f"\\[{c.number}\\] {ui.escape_md(c.source)}, {c.pages}"):
+        with st.expander(f"\\[{c.number}\\] {ui.escape_md(c.source)}" + (f", {c.pages}" if c.pages else "")):
             if c.section:
                 st.caption(f"Section: {ui.escape_md(c.section)}")
             if c.chunk_id in hits:
@@ -205,7 +205,8 @@ def show_answer(answer: Answer, turn: int) -> None:
             cited = {c.chunk_id for c in answer.citations}
             lines = []
             for n, h in enumerate(answer.hits, 1):
-                where = f"{ui.escape_md(h.source)}, {page_label(h)}" + (f" · {ui.escape_md(h.section)}" if h.section else "")
+                pages = pages_label(h.source, h.page_start, h.page_end)
+                where = ui.escape_md(h.source) + (f", {pages}" if pages else "") + (f" · {ui.escape_md(h.section)}" if h.section else "")
                 scores = " · ".join(f"{name} {value:.3f}" for name, value in h.scores.items())
                 lines.append(f"{n}. {where} · {'**cited**' if h.chunk_id in cited else 'not cited'}  \n"
                              f"   :gray[{scores}]")

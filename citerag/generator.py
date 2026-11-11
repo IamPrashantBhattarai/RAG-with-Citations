@@ -27,7 +27,10 @@ from typing import TYPE_CHECKING, Callable, Protocol
 
 import anthropic
 
+from pathlib import Path
+
 from citerag import config
+from citerag.loaders import DOCUMENT_EXTENSIONS, TEXT_EXTENSIONS
 from citerag.store import Hit
 
 if TYPE_CHECKING:
@@ -77,9 +80,12 @@ class Citation:
 
     @property
     def pages(self) -> str:
-        if self.page_start == self.page_end:
-            return f"p. {self.page_start}"
-        return f"pp. {self.page_start}-{self.page_end}"
+        """"p. 3" or "pp. 3-4"; "" for a file without pages (Word, text), cited by section instead."""
+        return pages_label(self.source, self.page_start, self.page_end)
+
+    @property
+    def location(self) -> str:
+        return location(self.source, self.page_start, self.page_end)
 
 
 @dataclass
@@ -251,13 +257,13 @@ def build_request(question: str, hits: list[Hit], model: str, max_tokens: int, e
     """The Messages API request: one cited document per chunk, then the question."""
     documents = []
     for h in hits:
-        pages = page_label(h)
-        context = f"Excerpt from {h.source}, {pages}" + (f", section: {h.section}" if h.section else "")
+        where = location(h.source, h.page_start, h.page_end)
+        context = f"Excerpt from {where}" + (f", section: {h.section}" if h.section else "")
         documents.append(
             {
                 "type": "document",
                 "source": {"type": "text", "media_type": "text/plain", "data": h.text},
-                "title": f"{h.source}, {pages}"[:200],
+                "title": where[:200],
                 "context": context,  # shown to Claude, never cited
                 "citations": {"enabled": True},
             }
@@ -327,8 +333,22 @@ def make_citation(number: int, h: Hit, start: int, end: int, cited_text: str,
     )
 
 
-def page_label(h: Hit) -> str:
-    return f"p. {h.page_start}" if h.page_start == h.page_end else f"pp. {h.page_start}-{h.page_end}"
+def location(source: str, page_start: int, page_end: int) -> str:
+    """Where a passage is: "paper.pdf, p. 3", or just "policy.docx" for a file without pages."""
+    pages = pages_label(source, page_start, page_end)
+    return f"{source}, {pages}" if pages else source
+
+
+def has_pages(source: str) -> bool:
+    """Word and text files have no fixed pages (they depend on the printer), so their "page 1" means nothing."""
+    return Path(source).suffix.lower() not in DOCUMENT_EXTENSIONS | TEXT_EXTENSIONS
+
+
+def pages_label(source: str, page_start: int, page_end: int) -> str:
+    """"p. 3", "pp. 3-4", or "" for a file without pages."""
+    if not has_pages(source):
+        return ""
+    return f"p. {page_start}" if page_start == page_end else f"pp. {page_start}-{page_end}"
 
 
 def _citation_key(c) -> tuple:
@@ -390,7 +410,7 @@ def _main() -> None:
         print("\nSources:")
         for c in answer.citations:
             quote = " ".join(c.cited_text.split())
-            print(f"  [{c.number}] {c.source}, {c.pages}: \"{_short(quote, 160)}\"")
+            print(f"  [{c.number}] {c.location}: \"{_short(quote, 160)}\"")
     v = answer.validation
     if v is not None and (v.claims or v.removed or v.invalid_markers):
         print("\nChecks:")

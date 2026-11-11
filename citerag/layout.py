@@ -59,6 +59,8 @@ PARSER_VERSION = 2
 FORMULA_MODES = ("text", "latex")
 OCR_ENGINES = ("rapidocr", "ocrmac", "off")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+# Formats without fixed pages (Phase 11): read as one text, cited by section rather than page.
+UNPAGED_EXTENSIONS = {".docx"}
 FORM_PAGE_SHARE = 0.5  # a page this much covered by a "form" region is written row by row
 MIN_TEXT_LAYER_CHARS = 20  # a PDF page with fewer text-layer characters than this is OCR'd
 
@@ -117,6 +119,8 @@ def _convert(path: Path, formulas: str, ocr: str) -> list[str]:
     """
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return _texts(_converter(formulas, ocr).convert(path))
+    if path.suffix.lower() in UNPAGED_EXTENSIONS:
+        return [document_text(_converter(formulas, "off").convert(path).document)]
     pages = _texts(_converter(formulas, "off").convert(path))
     missing = [n for n, chars in enumerate(text_layer_chars(path), start=1) if chars < MIN_TEXT_LAYER_CHARS]
     if missing and ocr != "off":
@@ -141,6 +145,26 @@ def text_layer_chars(path: Path) -> list[int]:
 
 def _texts(result) -> list[str]:
     return page_texts(result.document, form_pages(result))
+
+
+def document_text(doc) -> str:
+    """A document without pages (Word) as one markdown text, its header and footer first.
+
+    A Word file stores its header and footer once, not on every page as a PDF
+    does, and they often hold what someone may ask about (a document number,
+    a version). They go first, before any heading, so no section claims them.
+    """
+    from docling_core.transforms.serializer.markdown import MarkdownDocSerializer, MarkdownParams
+    from docling_core.types.doc import ContentLayer
+
+    table_serializer, text_serializer = _serializers()
+
+    def serialize(layer) -> str:
+        params = MarkdownParams(layers={layer}, escape_html=False, escape_underscores=False, image_placeholder="")
+        return MarkdownDocSerializer(doc=doc, params=params, table_serializer=table_serializer(),
+                                     text_serializer=text_serializer()).serialize().text
+
+    return "\n\n".join(t for t in (serialize(ContentLayer.FURNITURE), serialize(ContentLayer.BODY)) if t.strip())
 
 
 def page_texts(doc, rows: dict[int, str] | None = None) -> list[str]:
@@ -286,9 +310,14 @@ def table_rows(item) -> str:
 
 
 def formula_text(latex: str, pdf_text: str, inline: bool = False) -> str:
-    """LaTeX when it agrees with the PDF's text, otherwise the PDF's text."""
+    """LaTeX when it agrees with the PDF's text, otherwise the PDF's text.
+
+    When the two are identical, the LaTeX came from the file itself (a Word
+    equation), not from a model reading an image, and is kept as it is.
+    """
+    exact = bool(latex.strip()) and latex.strip() == pdf_text.strip()
     latex = clean_latex(latex) if latex else ""
-    if latex and same_symbols(latex, pdf_text):
+    if latex and (exact or same_symbols(latex, pdf_text)):
         return f"${latex}$" if inline else f"$${latex}$$"
     return " ".join(pdf_text.split()) if inline else pdf_text.strip()
 
@@ -382,10 +411,10 @@ def _converter(formulas: str, ocr: str):
         opts.ocr_options = OcrMacOptions(lang=["en-US"])
     opts.table_structure_options.mode = TableFormerMode.ACCURATE
     return DocumentConverter(
-        allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
+        allowed_formats=[InputFormat.PDF, InputFormat.IMAGE, InputFormat.DOCX],
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts),
                         InputFormat.IMAGE: ImageFormatOption(pipeline_options=opts)},
-    )
+    )  # DOCX uses Docling's default Word reader: no layout model needed, the file has structure
 
 
 def _cache_path(data: bytes, formulas: str, ocr: str) -> Path:

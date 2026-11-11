@@ -35,7 +35,7 @@ import numpy as np
 
 from citerag import config
 from citerag.chunker import _sentence_spans
-from citerag.generator import DECLINED, NOT_FOUND, Answer, Segment, page_label
+from citerag.generator import DECLINED, NOT_FOUND, Answer, Segment, location
 from citerag.retriever import tokenize
 from citerag.store import Hit, _best_device
 
@@ -257,7 +257,7 @@ class Validator:
             if not check.citations:
                 if supported:
                     h = sources[best]
-                    check.issues.append(f"no citation, though {h.source}, {page_label(h)} supports it")
+                    check.issues.append(f"no citation, though {location(h.source, h.page_start, h.page_end)} supports it")
                 else:
                     check.issues.append("no citation, and no retrieved passage supports it")
             elif not supported:

@@ -193,3 +193,13 @@ def test_rate_limit_error_is_user_facing():
     err = anthropic.RateLimitError("rate limited", response=resp, body=None)
     with pytest.raises(GenerationError, match="Rate limited"):
         make(ANSWER, error=err)[0].answer("q")
+
+
+def test_files_without_pages_are_cited_by_name_only():
+    from citerag.generator import location, pages_label
+
+    assert location("paper.pdf", 3, 4) == "paper.pdf, pp. 3-4" and pages_label("scan.png", 1, 1) == "p. 1"
+    for source in ("policy.docx", "notes.md", "readme.txt"):  # "page 1" of these means nothing
+        assert location(source, 1, 1) == source and pages_label(source, 1, 1) == ""
+    hit = Hit("c1", "Annual leave is 24 days.", "policy.docx", 1, 1, "1. Annual leave", 0, 24, 0.9)
+    assert build_request("q", [hit], "m", 10, "low")["messages"][0]["content"][0]["title"] == "policy.docx"

@@ -43,7 +43,10 @@ logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 IMAGE_EXTENSIONS = layout.IMAGE_EXTENSIONS
-SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf"} | IMAGE_EXTENSIONS
+DOCUMENT_EXTENSIONS = layout.UNPAGED_EXTENSIONS  # Word (Phase 11)
+SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf"} | IMAGE_EXTENSIONS | DOCUMENT_EXTENSIONS
+# Old binary Office formats Docling can't read: say what to do instead of "unsupported".
+_LEGACY = {".doc": "Word 97-2003 (.doc): save it as .docx or PDF"}
 PDF_PARSERS = ("docling", "pypdf")
 
 EDGE_LINES = 2  # lines at the top and bottom of a page checked for headers/footers
@@ -77,7 +80,29 @@ def load_file(path: str | Path, source: str | None = None) -> list[Page]:
         return load_text(path, source)
     if ext in IMAGE_EXTENSIONS:
         return load_image(path, source)
+    if ext in DOCUMENT_EXTENSIONS:
+        return load_document(path, source)
+    if ext in _LEGACY:
+        raise LoaderError(f"{path.name}: {_LEGACY[ext]}")
     raise LoaderError(f"{path.name}: unsupported file type {ext or '(none)'}")
+
+
+def load_document(path: str | Path, source: str | None = None) -> list[Page]:
+    """Read a Word (.docx) file as one text, page 1; it is cited by section, not page."""
+    path = Path(path)
+    source = source or path.name
+    if not layout.available():
+        raise LoaderError(f"{source}: reading {path.suffix} files needs Docling (pip install docling)")
+    try:
+        texts = [clean_text(t) for t in layout.parse_file(path)]
+    except layout.LayoutError as e:
+        raise LoaderError(f"{source}: cannot read {path.suffix} file ({e})") from e
+    except (OSError, ValueError) as e:
+        raise LoaderError(f"{source}: {e}") from e
+    pages = [Page(t, source, 1) for t in texts if _has_text(t)]
+    if not pages:
+        log.warning("%s: no text found", source)
+    return pages
 
 
 def load_image(path: str | Path, source: str | None = None) -> list[Page]:

@@ -4,7 +4,8 @@
     "bsccsit-syllabus-webtechnology.pdf",
     "NIPS-2017-attention-is-all-you-need-Paper.pdf",
     "Zhai_Scaling_Vision_Transformers_CVPR_2022_paper.pdf",
-    "handwriting.pdf"
+    "handwriting.pdf",
+    "leave-and-travel-policy.docx"
   ],
   "questions": [
     {"id": "syl-01", "kind": "single", "question": "What are the pass marks for the Web Technology exam?",
@@ -213,6 +214,15 @@
     {"id": "form-10", "kind": "single", "question": "Is this the first return filed for the plan?", "evidence": [{"source": "handwriting.pdf", "quote": "[x] (1)the first return filed for the plan"}], "facts": [["yes"], ["first return"]]},
     {"id": "form-11", "kind": "single", "question": "What is the plan administrator's EIN?", "evidence": [{"source": "handwriting.pdf", "quote": "532678"}], "facts": [["532678"]], "forbidden": ["735268329"]},
     {"id": "form-12", "kind": "single", "question": "Which plan year does the Form 5500-EZ cover?", "evidence": [{"source": "handwriting.pdf", "quote": "01/02/2022and ending 01/02/2023"}], "facts": [["01/02/2022", "January 2, 2022"], ["01/02/2023", "January 2, 2023"]]},
+    {"id": "docx-01", "kind": "single", "question": "How many days of paid annual leave do full-time employees get?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Full-time employees receive 24 working days of paid annual leave per calendar year."}], "facts": [["24"]]},
+    {"id": "docx-02", "kind": "single", "question": "How many unused annual leave days can be carried over to the next year?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Up to 5 unused days may be carried over to the next year"}], "facts": [["5", "five"]]},
+    {"id": "docx-03", "kind": "single", "question": "How far in advance must a leave request of more than 3 days be submitted?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Leave requests of more than 3 days must be submitted at least 10 working days in advance."}], "facts": [["10", "ten"]]},
+    {"id": "docx-04", "kind": "single", "question": "Who approves a leave request, and how quickly?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Your line manager approves or declines it within 2 working days."}], "facts": [["manager"], ["2", "two"]]},
+    {"id": "docx-05", "kind": "single", "question": "What is the daily travel allowance for a Grade B manager?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Grade: B (Manager); Daily allowance (NPR): 4,500"}], "facts": [["4,500", "4500"]]},
+    {"id": "docx-06", "kind": "single", "question": "What is the hotel limit per night in Kathmandu for a Director?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Grade: A (Director); Daily allowance (NPR): 6,000; Hotel limit per night (NPR) Kathmandu: 18,000"}], "facts": [["18,000", "18000"]]},
+    {"id": "docx-07", "kind": "single", "question": "When is a medical certificate needed for sick leave?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "A medical certificate is required for absences longer than 2 consecutive days."}], "facts": [["2", "two"]]},
+    {"id": "docx-08", "kind": "single", "question": "Who must approve travel costing more than NPR 100,000?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Travel costing more than NPR 100,000 per trip requires approval by the Finance Director."}], "facts": [["Finance Director"]]},
+    {"id": "docx-09", "kind": "single", "question": "What is the document number of the leave and travel policy?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Confidential — document number HR-POL-014"}], "facts": [["HR-POL-014"]]},
 
     {"id": "un-01", "kind": "unanswerable", "question": "Who is the instructor for Web Technology I?",
      "evidence": [], "facts": []},
@@ -232,6 +242,8 @@
      "evidence": [], "facts": []},
     {"id": "un-09", "kind": "unanswerable", "question": "What is the plan administrator's telephone number on the Form 5500-EZ?",
      "evidence": [], "facts": [], "forbidden": ["011536259"]},
+    {"id": "un-10", "kind": "unanswerable", "question": "How many days of paternity leave do employees get under the leave policy?",
+     "evidence": [], "facts": []},
 
     {"id": "off-01", "kind": "off_topic", "question": "How do I bake sourdough bread?", "evidence": [], "facts": []},
     {"id": "off-02", "kind": "off_topic", "question": "What is the capital of Australia?", "evidence": [], "facts": []},

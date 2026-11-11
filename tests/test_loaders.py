@@ -334,3 +334,22 @@ def test_loaded_pdf_feeds_chunker_with_page_spans(tmp_path):
     chunks = chunker.chunk_pages(load_pdf(pdf))
     assert chunks and all(c.source == "guide.pdf" for c in chunks)
     assert chunks[0].page_start == 1 and chunks[-1].page_end == 3
+
+
+# -- Word (Phase 11) -------------------------------------------------------------
+
+
+def test_word_files_load_as_one_text(tmp_path, monkeypatch):
+    docx = tmp_path / "policy.docx"
+    docx.write_bytes(b"PK")
+    monkeypatch.setattr(layout, "parse_file", lambda path: ["## 1. Annual leave\n\n24 days."])
+    assert [(p.source, p.page, p.text) for p in load_file(docx)] == [("policy.docx", 1, "## 1. Annual leave\n\n24 days.")]
+    monkeypatch.setattr(layout, "available", lambda: False)
+    with pytest.raises(LoaderError, match="needs Docling"):
+        load_file(docx)
+
+
+def test_old_word_files_say_what_to_do(tmp_path):
+    (tmp_path / "old.doc").write_bytes(b"\xd0\xcf\x11\xe0")
+    with pytest.raises(LoaderError, match="save it as .docx or PDF"):
+        load_file(tmp_path / "old.doc")

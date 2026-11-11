@@ -286,3 +286,52 @@ def test_real_docling_reads_a_pdf_page_by_page(tmp_path):
     p1, p2, p3 = layout.parse_file(pdf)
     assert "apples" in p1 and p2 == "" and "comets" in p3
     assert "bridges" not in p1 + p3
+
+
+# -- Word (Phase 11) -------------------------------------------------------------------
+
+OMML = ('<m:oMathPara xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:oMath>'
+        '<m:sSup><m:e><m:r><m:t>a</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>'
+        '<m:r><m:t>+</m:t></m:r>'
+        '<m:sSup><m:e><m:r><m:t>b</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>'
+        '</m:oMath></m:oMathPara>')
+
+
+def make_docx(path):
+    from docx import Document
+    from docx.oxml import parse_xml
+
+    doc = Document()
+    doc.sections[0].header.paragraphs[0].text = "Northwind Analytics · Version 3.2"
+    doc.sections[0].footer.paragraphs[0].text = "Document number HR-POL-014"
+    doc.add_heading("Leave Policy", level=0)
+    doc.add_heading("1. Annual leave", level=1)
+    doc.add_paragraph("Employees receive 24 days of paid annual leave.")
+    for step in ("Submit the request.", "Your manager approves it."):
+        doc.add_paragraph(step, style="List Number")
+    doc.add_heading("2. Travel", level=1)
+    t = doc.add_table(rows=3, cols=3)
+    t.cell(0, 0).merge(t.cell(1, 0)).text = "Grade"
+    t.cell(0, 1).merge(t.cell(0, 2)).text = "Hotel limit (NPR)"
+    t.cell(1, 1).text, t.cell(1, 2).text = "Kathmandu", "Other cities"
+    for c, v in enumerate(("A (Director)", "18,000", "12,000")):
+        t.cell(2, c).text = v
+    doc.add_paragraph().add_run()._r.getparent().append(parse_xml(OMML))
+    doc.save(path)
+    return path
+
+
+def test_latex_from_the_file_itself_is_kept():
+    # Word stores equations as structure: Docling's LaTeX and its "original" are the same string.
+    assert layout.formula_text(r"\frac{a}{b}", r"\frac{a}{b}") == r"$$\frac{a}{b}$$"
+    assert layout.formula_text(r"\frac{a}{b}", "a/c") == "a/c"  # read from an image and disagreeing: not kept
+
+
+@pytest.mark.skipif(not layout.available(), reason="docling not installed")
+def test_word_file_is_one_text_with_sections_tables_and_header(tmp_path):
+    [text] = layout.parse_file(make_docx(tmp_path / "policy.docx"))
+    assert text.startswith("Northwind Analytics · Version 3.2\n\nDocument number HR-POL-014\n\n# Leave Policy")
+    assert "## 1. Annual leave\n\nEmployees receive 24 days of paid annual leave." in text
+    assert "1. Submit the request.\n2. Your manager approves it." in text
+    assert "- Grade: A (Director); Hotel limit (NPR) Kathmandu: 18,000; Hotel limit (NPR) Other cities: 12,000" in text
+    assert "$$a^{2}+b^{2}$$" in text

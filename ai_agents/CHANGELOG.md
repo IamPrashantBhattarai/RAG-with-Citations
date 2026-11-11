@@ -4,6 +4,14 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Added — Phase 11 (part 1): Word files ([11-more-formats.md](11-more-formats.md#word-docx))
+- `.docx` files are read with Docling's Word reader into one Markdown text: headings become sections, lists are kept, tables become rows (merged headers joined), and equations stay as exact LaTeX. The header and footer go first, once.
+- Files without pages (Word, `.txt`, `.md`) are cited by file name and section, no longer "p. 1". `generator.location()`, `pages_label()` and `has_pages()` decide this for the app, both LLM prompts, the checker and the command line.
+- LaTeX identical to Docling's "original" (it came from the file, not from a model) is kept without the Phase 9 letter check.
+- Old `.doc` files get "save it as .docx or PDF".
+- **Eval:** `data/leave-and-travel-policy.docx` (a test file written for this, with a fictional policy) and 9 questions plus un-10. Retrieval: 9/9 in the top 5; reranker R@1 0.82, R@5 0.98 overall. Answers: 9/9 correct, and un-10 declined. One checker false alarm, on a table row with two values.
+- Tests: +2 `test_layout.py` (a real Word file; exact LaTeX), +2 `test_loaders.py`, +1 `test_generator.py`. 224 passing.
+
 ### Added — Phase 10: OCR for scanned pages, photos and images ([10-ocr.md](10-ocr.md))
 - PDF pages without a text layer (fewer than 20 characters) are read with OCR through Docling. Pages with a text layer are never OCR'd: OCR'ing figures on them added a watermark's text and a stray "0" that split a paragraph, and made parsing 5× slower. The four born-digital PDFs are word-for-word unchanged.
 - Image files (`.png .jpg .jpeg .tif .tiff .bmp .webp`) load as one-page documents. In the app, the uploader accepts them, and a cited image has a **Show image** toggle.
