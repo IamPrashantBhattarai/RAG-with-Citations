@@ -6,7 +6,8 @@
     "Zhai_Scaling_Vision_Transformers_CVPR_2022_paper.pdf",
     "handwriting.pdf",
     "leave-and-travel-policy.docx",
-    "q3-business-review.pptx"
+    "q3-business-review.pptx",
+    "rooftop-solar-guide.html"
   ],
   "questions": [
     {"id": "syl-01", "kind": "single", "question": "What are the pass marks for the Web Technology exam?",
@@ -233,6 +234,12 @@
     {"id": "pptx-07", "kind": "single", "question": "What is the revenue target for Q4?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Target revenue for Q4: NPR 48 million"}], "facts": [["48"]]},
     {"id": "pptx-08", "kind": "single", "question": "How many data engineers did the board approve hiring?", "evidence": [{"source": "q3-business-review.pptx", "quote": "The board approved hiring two data engineers in October."}], "facts": [["two", "2"]]},
     {"id": "pptx-09", "kind": "single", "question": "When will the self-service dashboard launch?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Launch the self-service dashboard in November"}], "facts": [["November"]]},
+    {"id": "html-01", "kind": "single", "question": "How much does a complete 3 kW rooftop solar system cost installed?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "A complete 3 kW system now costs about NPR 330,000 installed"}], "facts": [["330,000", "330000"]]},
+    {"id": "html-02", "kind": "single", "question": "What is the payback period for a rooftop solar system?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "the payback period is around six years at current tariffs"}], "facts": [["six", "6"]]},
+    {"id": "html-03", "kind": "single", "question": "How much electricity does a typical Kathmandu household use per month?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "A typical household in Kathmandu uses about 150 kWh of electricity a month."}], "facts": [["150"]]},
+    {"id": "html-04", "kind": "single", "question": "At what price does the Nepal Electricity Authority buy surplus rooftop solar power?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "buys surplus power from rooftop systems up to 10 kW at NPR 8 per unit"}], "facts": [["NPR 8", "8 per unit", "Rs 8", "Rs. 8"]]},
+    {"id": "html-05", "kind": "single", "question": "What is the installed price of a 5 kW solar system?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "System size: 5 kW; Installed price (NPR): 520,000"}], "facts": [["520,000", "520000"]]},
+    {"id": "html-06", "kind": "single", "question": "What kind of meter is required for net metering?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "A bidirectional meter is required."}], "facts": [["bidirectional", "bi-directional"]]},
 
     {"id": "un-01", "kind": "unanswerable", "question": "Who is the instructor for Web Technology I?",
      "evidence": [], "facts": []},
@@ -255,6 +262,8 @@
     {"id": "un-10", "kind": "unanswerable", "question": "How many days of paternity leave do employees get under the leave policy?",
      "evidence": [], "facts": []},
     {"id": "un-11", "kind": "unanswerable", "question": "Who is the chief executive of Northwind Analytics?",
+     "evidence": [], "facts": []},
+    {"id": "un-12", "kind": "unanswerable", "question": "What warranty comes with the rooftop solar panels?",
      "evidence": [], "facts": []},
 
     {"id": "off-01", "kind": "off_topic", "question": "How do I bake sourdough bread?", "evidence": [], "facts": []},

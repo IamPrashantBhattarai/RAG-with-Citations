@@ -14,7 +14,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from citerag import config, ui
+from citerag import config, ui, web
 from citerag.generator import Answer, GenerationError, Generator, make_backend, pages_label
 from citerag.loaders import SUPPORTED_EXTENSIONS, LoaderError, load_dir, load_file
 from citerag.retriever import Retriever
@@ -82,6 +82,12 @@ def sidebar(store: Store) -> dict:
                                  key=f"upload-{st.session_state.upload_key}")
         if files and st.button("Add to index", type="primary", width="stretch"):
             add_files(store, files)
+        with st.form("add-url", clear_on_submit=True, border=False):
+            url = st.text_input("Add a web page", placeholder="https://…",
+                                help="The page is saved into the documents folder and indexed. "
+                                     "Only public http(s) pages, up to 5 MB.")
+            if st.form_submit_button("Save and index", width="stretch") and url.strip():
+                add_url(store, url)
         if st.button(f"Rescan {config.DATA_DIR.name}/ folder", width="stretch",
                      help=f"Index new or changed files in {config.DATA_DIR.name}/ and drop files that are gone"):
             rescan(store)
@@ -129,6 +135,21 @@ def add_files(store: Store, files) -> None:
     for e in errors:
         flash("error", e)
     st.session_state.upload_key += 1  # empties the uploader
+    st.rerun()
+
+
+def add_url(store: Store, url: str) -> None:
+    with st.spinner("Downloading and indexing…"):
+        try:
+            path = web.fetch(url, config.DATA_DIR)
+            pages = load_file(path)
+        except (web.WebError, LoaderError) as e:
+            flash("error", str(e))
+            st.rerun()
+        if pages:
+            flash("success", f"Saved {path.name}. " + ui.report_text(store.index(pages)))
+        else:
+            flash("error", f"{path.name}: no text found on the page")
     st.rerun()
 
 

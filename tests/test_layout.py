@@ -365,3 +365,34 @@ def test_powerpoint_is_one_text_per_slide_with_notes(tmp_path):
     assert s1 == "# Q3 highlights\n\n- Revenue reached NPR 42.5 million"  # a body placeholder is a bullet list
     assert s2 == "# Revenue by region\n\n- Region: Pokhara; Growth: 26%\n\nSpeaker notes: Pokhara grew fastest."
     assert s3 == ""
+
+
+# -- HTML (Phase 11) -------------------------------------------------------------------
+
+HTML_PAGE = """<!DOCTYPE html><html><head><title>Solar guide | Himal Energy</title><script>track()</script></head><body>
+<header><nav><ul><li><a href="/">Home</a></li><li><a href="/shop">Shop</a></li></ul></nav></header>
+<div class="cookie-banner">We use cookies. <button>Accept all</button></div>
+<main><article><h1>Rooftop solar</h1><p>A 3 kW system costs about NPR 330,000. See <a href="/prices">prices</a>.</p>
+<h2>Net metering</h2><table><tr><th>System</th><th>Price (NPR)</th></tr><tr><td>5 kW</td><td>520,000</td></tr></table>
+</article></main><footer>© 2026 Himal Energy</footer></body></html>"""
+
+
+@pytest.mark.skipif(not layout.available(), reason="docling not installed")
+def test_html_keeps_the_article_without_menus_banners_or_link_targets(tmp_path):
+    (tmp_path / "solar.html").write_text(HTML_PAGE)
+    [text] = layout.parse_file(tmp_path / "solar.html")
+    assert text == ("# Rooftop solar\n\nA 3 kW system costs about NPR 330,000. See prices.\n\n"
+                    "## Net metering\n\n- System: 5 kW; Price (NPR): 520,000")
+
+
+def test_clean_html_keeps_the_main_content():
+    page = b"""<html><head><title>Guide</title></head><body><div id="vector-toc">Contents</div>
+    <main id="content"><h1>Net metering</h1><div class="mw-portlet-lang">17 languages</div>
+    <p>Credits roll over monthly.<sup class="reference">[1]</sup></p><span class="mw-editsection">edit</span>
+    <div class="stock-price">NPR 8 per unit</div><div hidden>secret</div><div aria-hidden="true">icon</div>
+    <ol class="references"><li>A source</li></ol></main><footer>(c) 2026</footer></body></html>"""
+    out = layout.clean_html(page).decode()
+    for kept in ("<title>Guide</title>", "Net metering", "Credits roll over monthly.", "NPR 8 per unit"):
+        assert kept in out
+    for gone in ("Contents", "17 languages", "[1]", "edit<", "secret", "icon", "A source", "(c) 2026"):
+        assert gone not in out

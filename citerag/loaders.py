@@ -43,7 +43,7 @@ logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 IMAGE_EXTENSIONS = layout.IMAGE_EXTENSIONS
-DOCUMENT_EXTENSIONS = layout.UNPAGED_EXTENSIONS | layout.SLIDE_EXTENSIONS  # Word, PowerPoint (Phase 11)
+DOCUMENT_EXTENSIONS = layout.UNPAGED_EXTENSIONS | layout.SLIDE_EXTENSIONS  # Word, HTML, PowerPoint (Phase 11)
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf"} | IMAGE_EXTENSIONS | DOCUMENT_EXTENSIONS
 # Old binary Office formats Docling can't read: say what to do instead of "unsupported".
 _LEGACY = {".doc": "Word 97-2003 (.doc): save it as .docx or PDF",
@@ -89,7 +89,7 @@ def load_file(path: str | Path, source: str | None = None) -> list[Page]:
 
 
 def load_document(path: str | Path, source: str | None = None) -> list[Page]:
-    """Read a Word file as one text (page 1, cited by section), or a PowerPoint file as one page per slide."""
+    """Read a Word or HTML file as one text (page 1, cited by section), or a PowerPoint file as one page per slide."""
     path = Path(path)
     source = source or path.name
     if not layout.available():

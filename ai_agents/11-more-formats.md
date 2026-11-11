@@ -1,6 +1,6 @@
 # Phase 11 — More file formats
 
-**Status:** 🔄 In progress: Word (.docx) and PowerPoint (.pptx) done (2026-11-11). Next: HTML and web pages, email · Code so far: `citerag/layout.py`, `citerag/loaders.py`, `citerag/chunker.py`, `citerag/store.py`, `citerag/generator.py`, `citerag/gemini.py`, `citerag/validator.py`, `app.py` · Tests so far: +3 `tests/test_layout.py`, +3 `tests/test_loaders.py`, +1 `tests/test_generator.py`, +1 `tests/test_chunker.py`; 231 passing in total
+**Status:** 🔄 In progress: Word (.docx), PowerPoint (.pptx), HTML files and web pages done (2026-11-11). Next: email · Code so far: `citerag/layout.py`, `citerag/loaders.py`, `citerag/chunker.py`, `citerag/store.py`, `citerag/generator.py`, `citerag/gemini.py`, `citerag/validator.py`, `app.py` · Tests so far: +5 `tests/test_layout.py`, +3 `tests/test_loaders.py`, +1 `tests/test_generator.py`, +1 `tests/test_chunker.py`, `tests/test_web.py` (4, new); 237 passing in total
 
 ## Goal
 
@@ -83,4 +83,58 @@ Docling reads `.pptx` from the file's structure, one page per slide. The slide t
 
 - **Charts, SmartArt and images on slides aren't read** (a screenshot of a table, for example). OCR on embedded images is the open item noted under Word.
 - **Slide order is file order;** hidden slides are read like the others.
+
+## HTML files and web pages
+
+### HTML files (.html, .htm)
+
+Read with Docling's HTML reader as one text, cited by file name and section, like Word. Two differences from Word:
+- **No header/footer block.** In HTML, Docling's "furniture" is the page title, menus, cookie banner and footer, which is clutter, not a document number.
+- **Link targets are dropped** (`[Shop](/shop)` → `Shop`), for Word too. Inline links are joined with a space by Docling ("See prices ."); a space between a word and punctuation is removed in Word and HTML text.
+
+**Main-content cleanup (`layout.clean_html`).** On a tidy test page, Docling's own furniture detection was enough. A real Wikipedia article (Net metering) still brought its table of contents, a 17-language menu, "Edit links", "Toggle" buttons and `[ 1 ]` / `[ note 1 ]` reference markers. The markers are a real risk, because the LLM cites with `[n]` markers and could copy them. Before Docling, a page is now reduced with BeautifulSoup (already installed with Docling):
+- keep `<main>` (or `role="main"`, or `<article>`) when the page has one
+- remove clutter tags (`nav`, `aside`, `form`, `button`, `script`, `svg`, `iframe`…) and hidden elements (`hidden`, `aria-hidden="true"`)
+- remove elements whose id or class has a clutter **word** (`toc`, `menu`, `cookie`, `lang`, `toolbar`, `editsection`, `navbox`, `catlinks`, `share`, `reference`…), matched as whole words so `stock-price` survives `toc`
+
+On the Wikipedia page that took 56,566 characters of mostly clutter down to 29,301, starting with the article's title and first paragraph, with 0 reference markers left.
+
+### Web pages (`citerag/web.py`, new)
+
+A URL is downloaded once and **saved into `data/`** as a file (`example.org-blog-solar-guide.html`), so it's indexed, cited and rescanned like any document, and answers keep working if the page changes or disappears. Saved HTML starts with `<meta name="citerag-source-url" …>` and `<meta name="citerag-saved" …>`, and the loader puts "Web page: https://…" at the top of its text. A URL that serves a PDF is saved as a `.pdf`.
+
+**Safety.** The app runs on the user's computer, so a URL must not make it read the local network (SSRF):
+- only `http`/`https`
+- **every address the host resolves to must be public** (`ipaddress.is_global`: no localhost, 10.x, 192.168.x, 100.64.x, `fd00::/8`, or the `169.254.169.254` cloud metadata address)
+- checked again at **every redirect** (redirects are followed by hand, at most 5)
+- 15 s timeout, a 5 MB cap (checked on the header and while reading), and only `text/html`, `application/xhtml+xml` or `application/pdf`
+- written to a temp file and renamed, so a failed download leaves nothing
+- a generic User-Agent (`CiteRAG/1.0`), no personal details
+
+**App:** "Add a web page" in the sidebar (URL → *Save and index*). **CLI:** `python -m citerag.web URL`.
+
+Checked live: the Wikipedia page saved and parsed in 2.2 s; `http://localhost:8501` and `http://169.254.169.254/latest/meta-data/` were refused with "… is not a public internet address".
+
+### Evaluation
+
+`data/rooftop-solar-guide.html` is a test page written for this phase (a fictional solar blog post with a header, menu, cookie banner, sidebar, footer and scripts). It gets 6 questions (html-01 to html-06: the installed price, payback, household use, the buy-back rate, a table value, the meter type) and **un-12** (panel warranty, not covered). 118 questions in total, 91 answerable.
+
+- **Retrieval** (7 documents, 100 chunks): all 6 in the top 5. Reranker R@1 0.84, R@5 0.98; still missing att-17 and multi-01. The gate is unchanged.
+- **Answers** (`gemini-3.5-flash-lite`): **6/6 correct**, no checker warnings; un-12 was declined. The free tier was throttling at this point: 7 calls took about 20 minutes, waiting and retrying (`--no-fallback`), and no answer was lost.
+
+### Tests
+
+- `test_web.py` (4, new): a local HTTP server stands in for the web.
+  - A page is saved with its address and read back as "Web page: …" without its menu; a same-site redirect is followed; a PDF URL is saved as `.pdf`.
+  - Refusals say why: a redirect to `localhost`, an image, a 404, `ftp://`, loopback without the test's allowance, and an oversized page, with nothing half-saved.
+  - Private, loopback, link-local, ULA and carrier-grade NAT addresses are rejected, and one private address among public ones is enough to refuse.
+  - File names come from the address.
+- `test_layout.py`: real Docling HTML keeps the article without the menu, cookie banner, footer or link targets; `clean_html` keeps `<main>`, drops clutter by whole word, keeps `stock-price`, drops hidden elements and footnote markers.
+
+### Limitations
+
+- **The cleanup is a heuristic.** A site that puts content in a div called "menu", or clutter in unmarked divs, will lose or keep the wrong parts.
+- **DNS can change between the check and the download** (DNS rebinding); the window is small, and a later redirect is checked again.
+- **Pages built by JavaScript** (single-page apps) have little HTML to read, because no browser runs here.
+- **Logins and paywalls** aren't handled; you get what an anonymous visitor gets.
 

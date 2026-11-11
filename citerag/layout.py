@@ -38,6 +38,7 @@ new or changed files.
 from __future__ import annotations
 
 import hashlib
+import html
 import importlib.metadata
 import importlib.util
 import json
@@ -60,7 +61,11 @@ FORMULA_MODES = ("text", "latex")
 OCR_ENGINES = ("rapidocr", "ocrmac", "off")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 # Formats without fixed pages (Phase 11): read as one text, cited by section rather than page.
-UNPAGED_EXTENSIONS = {".docx"}
+UNPAGED_EXTENSIONS = {".docx", ".html", ".htm"}
+HTML_EXTENSIONS = {".html", ".htm"}
+# Saved web pages (citerag/web.py) carry the address they came from in this meta tag.
+_SOURCE_URL_RE = re.compile(rb'<meta name="citerag-source-url" content="([^"]+)"')
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"(?<=\w) (?=[.,;:!?](?:\s|$))")
 # Formats whose "pages" are slides (Phase 11): one text per slide, cited as "slide 3".
 SLIDE_EXTENSIONS = {".pptx"}
 FORM_PAGE_SHARE = 0.5  # a page this much covered by a "form" region is written row by row
@@ -122,7 +127,12 @@ def _convert(path: Path, formulas: str, ocr: str) -> list[str]:
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return _texts(_converter(formulas, ocr).convert(path))
     if path.suffix.lower() in UNPAGED_EXTENSIONS:
-        return [document_text(_converter(formulas, "off").convert(path).document)]
+        is_html = path.suffix.lower() in HTML_EXTENSIONS
+        source = _html_stream(path) if is_html else path
+        text = document_text(_converter(formulas, "off").convert(source).document, furniture=not is_html)
+        if is_html and (m := _SOURCE_URL_RE.search(path.read_bytes()[:4096])):
+            text = f"Web page: {html.unescape(m.group(1).decode('utf-8', 'replace'))}\n\n{text}"
+        return [text]
     if path.suffix.lower() in SLIDE_EXTENSIONS:
         return slide_texts(_converter(formulas, "off").convert(path).document)
     pages = _texts(_converter(formulas, "off").convert(path))
@@ -176,12 +186,63 @@ def slide_texts(doc) -> list[str]:
     return texts
 
 
-def document_text(doc) -> str:
-    """A document without pages (Word) as one markdown text, its header and footer first.
+# Page parts that aren't the content, by tag, and by a word of their id or class ("mw-portlet-lang").
+_CLUTTER_TAGS = ["nav", "aside", "form", "button", "script", "style", "noscript", "svg", "iframe",
+                 "select", "input", "template", "dialog"]
+_CLUTTER_WORDS = {
+    "toc", "sidebar", "menu", "cookie", "cookies", "consent", "banner", "breadcrumb", "breadcrumbs",
+    "share", "sharing", "social", "navbox", "navbar", "nav", "navigation", "lang", "language", "languages",
+    "editsection", "toolbar", "catlinks", "related", "newsletter", "subscribe", "ad", "ads", "advert",
+    "advertisement", "promo", "skip", "sitenotice", "noprint", "popup", "modal",
+    # Footnote markers ("[1]", "[note 1]") and reference lists: the LLM cites with [n] markers itself.
+    "reference", "references", "reflist",
+}
 
-    A Word file stores its header and footer once, not on every page as a PDF
-    does, and they often hold what someone may ask about (a document number,
-    a version). They go first, before any heading, so no section claims them.
+
+def clean_html(data: bytes) -> bytes:
+    """A web page reduced to its content before Docling reads it.
+
+    Docling drops <nav>, <header> and <footer>, which was enough for a tidy
+    test page, but a real Wikipedia article still brought its table of
+    contents, a 17-language menu, "Edit links" and toggle buttons. Keep the
+    page's <main> (or its <article>) when it has one, then remove clutter
+    tags and elements whose id or class has a clutter word. Whole words
+    only: "toc" removes "vector-toc", not "stock-price".
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(data, "html.parser")
+    root = soup.find("main") or soup.find(attrs={"role": "main"}) or soup.find("article") or soup.body or soup
+    for el in root.find_all(_CLUTTER_TAGS):
+        el.decompose()
+    for el in root.find_all(True):
+        if el.decomposed:
+            continue
+        names = " ".join([el.get("id") or ""] + list(el.get("class") or []))
+        hidden = el.has_attr("hidden") or el.get("aria-hidden") == "true"
+        if hidden or _CLUTTER_WORDS & set(re.split(r"[^a-z0-9]+", names.lower())):
+            el.decompose()
+    title = soup.title.string if soup.title and soup.title.string else ""
+    return f"<html><head><title>{html.escape(title)}</title></head><body>{root}</body></html>".encode()
+
+
+def _html_stream(path: Path):
+    import io
+
+    from docling.datamodel.base_models import DocumentStream
+
+    return DocumentStream(name=path.name, stream=io.BytesIO(clean_html(path.read_bytes())))
+
+
+def document_text(doc, furniture: bool = True) -> str:
+    """A document without pages (Word, HTML) as one markdown text.
+
+    With `furniture`, its header and footer go first. A Word file stores them
+    once, not on every page as a PDF does, and they often hold what someone
+    may ask about (a document number, a version); before any heading, no
+    section claims them. A web page's "furniture" is its menus, cookie banner
+    and footer, so HTML leaves it out. Link targets are dropped: "[Shop](/shop)"
+    is just "Shop" to a reader, and the address only adds noise to search.
     """
     from docling_core.transforms.serializer.markdown import MarkdownDocSerializer, MarkdownParams
     from docling_core.types.doc import ContentLayer
@@ -189,11 +250,14 @@ def document_text(doc) -> str:
     table_serializer, text_serializer = _serializers()
 
     def serialize(layer) -> str:
-        params = MarkdownParams(layers={layer}, escape_html=False, escape_underscores=False, image_placeholder="")
+        params = MarkdownParams(layers={layer}, escape_html=False, escape_underscores=False, image_placeholder="",
+                                include_hyperlinks=False)
         return MarkdownDocSerializer(doc=doc, params=params, table_serializer=table_serializer(),
                                      text_serializer=text_serializer()).serialize().text
 
-    return "\n\n".join(t for t in (serialize(ContentLayer.FURNITURE), serialize(ContentLayer.BODY)) if t.strip())
+    parts = ([serialize(ContentLayer.FURNITURE)] if furniture else []) + [serialize(ContentLayer.BODY)]
+    text = "\n\n".join(t for t in parts if t.strip())
+    return _SPACE_BEFORE_PUNCT_RE.sub("", text)  # inline links are joined with spaces: "See prices ."
 
 
 def page_texts(doc, rows: dict[int, str] | None = None) -> list[str]:
@@ -440,10 +504,10 @@ def _converter(formulas: str, ocr: str):
         opts.ocr_options = OcrMacOptions(lang=["en-US"])
     opts.table_structure_options.mode = TableFormerMode.ACCURATE
     return DocumentConverter(
-        allowed_formats=[InputFormat.PDF, InputFormat.IMAGE, InputFormat.DOCX, InputFormat.PPTX],
+        allowed_formats=[InputFormat.PDF, InputFormat.IMAGE, InputFormat.DOCX, InputFormat.PPTX, InputFormat.HTML],
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts),
                         InputFormat.IMAGE: ImageFormatOption(pipeline_options=opts)},
-    )  # DOCX and PPTX use Docling's readers for them: no layout model needed, the file has structure
+    )  # DOCX, PPTX and HTML use Docling's readers for them: no layout model needed, the file has structure
 
 
 def _cache_path(data: bytes, formulas: str, ocr: str) -> Path:

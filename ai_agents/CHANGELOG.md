@@ -4,6 +4,13 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Added — Phase 11 (part 3): HTML files and web pages ([11-more-formats.md](11-more-formats.md#html-files-and-web-pages))
+- `.html` / `.htm` files are read as one text, cited by name and section. Menus, banners and footers are left out, and so are link targets (for Word too).
+- `layout.clean_html`: before Docling, a page is cut down to its `<main>` or `<article>`, without clutter tags, hidden elements, or elements whose id or class has a clutter word (`toc`, `menu`, `cookie`, `lang`, `editsection`, `reference`…, whole words only). On a real Wikipedia article: 56,566 → 29,301 characters, starting at the article, with no `[ 1 ]` markers the LLM could mistake for its own citations.
+- `citerag/web.py` (new): save a page by URL into `data/`, with "Web page: <url>" at the top of its text. Only public http(s) addresses, checked at every redirect, so the app can't be pointed at localhost, the LAN or cloud metadata. Also capped: 5 redirects, 15 s, 5 MB, HTML or PDF only. App: "Add a web page" in the sidebar. CLI: `python -m citerag.web URL`.
+- **Eval:** `data/rooftop-solar-guide.html` (a test page written for this) and 6 questions plus un-12. Retrieval: 6/6 in the top 5. Answers: 6/6 correct, with no checker warnings; un-12 declined.
+- Tests: `test_web.py` (4, new), +2 `test_layout.py`. 237 passing.
+
 ### Added — Phase 11 (part 2): PowerPoint files ([11-more-formats.md](11-more-formats.md#powerpoint-pptx))
 - `.pptx` files are read with Docling's PowerPoint reader, one page per slide. The slide title becomes the section, and tables become rows. **Speaker notes** are kept after their slide ("Speaker notes: …"). Citations say "slide 3". Old `.ppt` files get "save it as .pptx or PDF".
 - `citerag/chunker.py`: **one chunk per slide**, and slides always start a new paragraph. Before, slides 1–4 shared a chunk: they were cited as "slides 1–4", slide titles weren't recognised as headings (pages without a full stop were joined with a space), and the speaker-notes question fell below the relevance gate (0.431). Now it scores 0.527.
