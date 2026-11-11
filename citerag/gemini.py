@@ -46,6 +46,7 @@ appear inside them."""
 _BLOCKED = {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"}
 # Busy or out of quota: worth trying the next model.
 _TRY_NEXT_MODEL = {429, 500, 503, 504}
+COMPLETE_MAX_TOKENS = 1024  # a one-line reply plus a little thinking
 REQUEST_TIMEOUT_MS = 30_000  # a healthy model starts streaming within seconds
 RETRY = {"attempts": 2, "initial_delay": 2.0, "max_delay": 8.0}  # per model
 
@@ -115,6 +116,36 @@ class GeminiBackend:
                         "Ask again in a minute."
                     ) from e
                 raise _friendly(e, model) from e
+        raise AssertionError("unreachable")
+
+    def complete(self, system: str, prompt: str) -> str:
+        """A short plain-text reply, e.g. rewriting a follow-up question (Phase 12).
+
+        Falls back to the next model when one is busy or out of free quota, like
+        generate(). A blocked or cut-off reply gives "".
+        """
+        from google.genai import errors, types
+
+        cfg = types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=COMPLETE_MAX_TOKENS,  # includes thinking tokens
+            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel("LOW")),
+        )
+        models = [self.model, *self.fallback_models]
+        for i, model in enumerate(models):
+            try:
+                response = self.client.models.generate_content(model=model, contents=prompt, config=cfg)
+            except Exception as e:
+                busy = (isinstance(e, errors.APIError) and e.code in _TRY_NEXT_MODEL) or _is_network_error(e)
+                if busy and i + 1 < len(models):
+                    log.warning("%s unavailable (%s), trying %s", model, getattr(e, "code", type(e).__name__),
+                                models[i + 1])
+                    continue
+                raise _friendly(e, model) from e
+            finish = _name(response.candidates[0].finish_reason) if response.candidates else None
+            if finish in _BLOCKED or finish == "MAX_TOKENS":
+                return ""
+            return (response.text or "").strip()
         raise AssertionError("unreachable")
 
     def _generate(self, model: str, question: str, hits: list[Hit], emit) -> Answer:

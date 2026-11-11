@@ -157,3 +157,35 @@ def test_no_fallback_after_text_was_shown():
 def test_timeout_falls_back_to_next_model():
     b, client = backend(STREAM, errors=[httpx.ReadTimeout("slow"), None])
     assert b.generate("q", HITS).model == "gemini-3.6-flash"
+
+
+# -- complete(): short replies such as rewriting a follow-up (Phase 12) -----------
+
+
+def test_complete_returns_text_and_falls_back_when_busy():
+    calls = []
+
+    def generate(**kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            raise api_error(503, "overloaded")
+        return NS(text="  What is the deposit for the Pokhara office?\n", candidates=[NS(finish_reason=NS(name="STOP"))])
+
+    b = GeminiBackend(NS(models=NS(generate_content=generate)), model="gemini-3.8-flash",
+                      fallback_models=["gemini-3.5-flash-lite"])
+    assert b.complete("Rewrite it.", "Latest question: And the deposit?") == "What is the deposit for the Pokhara office?"
+    assert [c["model"] for c in calls] == ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+    assert calls[0]["config"].system_instruction == "Rewrite it."
+
+
+def test_complete_gives_nothing_when_blocked_or_cut_off():
+    for finish in ("SAFETY", "MAX_TOKENS"):
+        b = GeminiBackend(NS(models=NS(generate_content=lambda **kw: NS(text="partial", candidates=[
+            NS(finish_reason=NS(name=finish))]))), model="gemini-3.8-flash", fallback_models=[])
+        assert b.complete("s", "p") == ""
+    def bad_request(**kw):
+        raise api_error(400, "bad")
+
+    b = GeminiBackend(NS(models=NS(generate_content=bad_request)), model="gemini-3.8-flash", fallback_models=[])
+    with pytest.raises(GenerationError):
+        b.complete("s", "p")

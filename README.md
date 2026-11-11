@@ -86,7 +86,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 It opens at http://localhost:8501. The first start takes a little longer while the models load.
 
 1. **Add documents.** Upload PDF, Word (.docx), PowerPoint (.pptx), HTML, email (.eml, .msg), TXT, MD or image files (PNG, JPG, TIFF…; scans and photos are read with OCR) in the sidebar, or put them in `data/` and click **Rescan data/ folder**. To add a web page, paste its address under **Add a web page**: it is saved into `data/` (public http(s) pages only, up to 5 MB) and indexed.
-2. **Ask a question** in the box at the bottom.
+2. **Ask a question** in the box at the bottom. Follow-ups work ("And the deposit?"): a follow-up is rewritten into a standalone question, shown under it as *Searched for: …*, and answered from the documents like any question.
 3. **Read the answer.** Citations appear as small numbers. Below the answer:
    - **Sources**: one per citation. Open it to see the whole passage with the quote highlighted, and **Show PDF** to see the cited page.
    - **Checks**: every statement with ✓ or ✗ and the reason.
@@ -97,6 +97,7 @@ Statements that fail the checks have a yellow background, and hovering shows why
 - **Search in:** limit the search to some documents.
 - **Passages:** how many passages the model gets.
 - **Strict mode:** removes unsupported statements instead of highlighting them.
+- **Chats:** every conversation is saved (in `.chats/`, on this computer) and listed here; *New chat* starts another. The address bar holds the chat's id, so a reload or bookmark reopens it.
 
 The page only listens on `localhost`, so other devices on your network can't reach it.
 
@@ -184,6 +185,8 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 | `citerag/layout.py` | Docling parsing: PDFs (layout, OCR, forms), Word, PowerPoint, HTML; tables as rows, checked formulas, parse cache |
 | `citerag/web.py` | Save a web page by URL into `data/`, public addresses only |
 | `citerag/mail.py` | Pull the attachments out of an email, for the loader to read |
+| `citerag/conversation.py` | Rewrite follow-up questions into standalone ones before searching |
+| `citerag/chats.py` | Save and reopen chats (`.chats/`) |
 | `citerag/chunker.py` | Split pages into chunks with stable IDs |
 | `citerag/store.py` | Embeddings and the ChromaDB index |
 | `citerag/retriever.py` | Hybrid search, reranking, the "not in the documents" cutoff |

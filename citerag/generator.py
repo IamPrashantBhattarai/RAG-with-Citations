@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Protocol
 
@@ -56,6 +57,7 @@ NOT_FOUND = "I couldn't find anything about this in your documents."
 DECLINED = "The model declined to answer this question."
 # Opt-in server-side retry on another model if a safety classifier declines.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+COMPLETE_MAX_TOKENS = 4096  # a one-line reply plus the thinking Claude Opus 5.5 always does
 
 
 class GenerationError(RuntimeError):
@@ -118,6 +120,10 @@ class Backend(Protocol):
     def generate(
         self, question: str, hits: list[Hit], on_text: Callable[[str], None] | None
     ) -> Answer: ...
+
+    def complete(self, system: str, prompt: str) -> str:
+        """A short plain-text reply (no documents, no citations); "" if none came back."""
+        ...
 
 
 class Generator:
@@ -217,9 +223,30 @@ class ClaudeBackend:
             log.warning("answer was cut off at max_tokens=%d", self.max_tokens)
         return parse_response(question, message, hits)
 
+    def complete(self, system: str, prompt: str) -> str:
+        """A short reply at low effort, e.g. rewriting a follow-up question (Phase 12).
+
+        Thinking can't be turned off on Claude Opus 5.5 and effort defaults to
+        medium, so effort is set low; max_tokens leaves room for the hidden
+        thinking. A refusal or a cut-off reply gives "".
+        """
+        with _anthropic_errors(self.model):
+            message = self.client.beta.messages.create(
+                model=self.model,
+                max_tokens=COMPLETE_MAX_TOKENS,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+                output_config={"effort": "low"},
+                betas=[FALLBACK_BETA],
+                fallbacks="default",
+            )
+        if message.stop_reason in ("refusal", "max_tokens"):
+            return ""
+        return "".join(b.text for b in message.content if b.type == "text").strip()
+
     def _call(self, request: dict, on_text: Callable[[str], None] | None):
         seen: dict[tuple, int] = {}  # live [n] numbering, same rule as parse_response
-        try:
+        with _anthropic_errors(self.model):
             with self.client.beta.messages.stream(**request) as stream:
                 for event in stream:
                     if not on_text:
@@ -231,27 +258,34 @@ class ClaudeBackend:
                         n = seen.setdefault(key, len(seen) + 1)
                         on_text(f"[{n}]")
                 return stream.get_final_message()
-        except anthropic.AuthenticationError as e:
-            raise GenerationError("The Anthropic API key was rejected. Check ANTHROPIC_API_KEY in .env.") from e
-        except anthropic.PermissionDeniedError as e:
-            raise GenerationError(f"This API key can't use {self.model}: {e.message}") from e
-        except anthropic.NotFoundError as e:
-            raise GenerationError(f"Model {self.model} was not found. Check CITERAG_LLM_MODEL.") from e
-        except anthropic.RateLimitError as e:
-            raise GenerationError("Rate limited by the Anthropic API. Wait a minute and retry.") from e
-        except anthropic.BadRequestError as e:
-            raise GenerationError(f"The API rejected the request: {e.message}") from e
-        except anthropic.APIStatusError as e:
-            raise GenerationError(f"Anthropic API error {e.status_code}. Try again shortly.") from e
-        except anthropic.APIConnectionError as e:
-            raise GenerationError("Couldn't reach the Anthropic API. Check your internet connection.") from e
-        except TypeError as e:
-            if "authentication" in str(e).lower():
-                raise GenerationError(
-                    "No Anthropic API key found. Set ANTHROPIC_API_KEY in .env, or use the free "
-                    "Gemini backend (CITERAG_LLM_PROVIDER=gemini)."
-                ) from e
-            raise
+
+
+@contextmanager
+def _anthropic_errors(model: str):
+    """Anthropic SDK errors as GenerationErrors with a plain message, most specific first."""
+    try:
+        yield
+    except anthropic.AuthenticationError as e:
+        raise GenerationError("The Anthropic API key was rejected. Check ANTHROPIC_API_KEY in .env.") from e
+    except anthropic.PermissionDeniedError as e:
+        raise GenerationError(f"This API key can't use {model}: {e.message}") from e
+    except anthropic.NotFoundError as e:
+        raise GenerationError(f"Model {model} was not found. Check CITERAG_LLM_MODEL.") from e
+    except anthropic.RateLimitError as e:
+        raise GenerationError("Rate limited by the Anthropic API. Wait a minute and retry.") from e
+    except anthropic.BadRequestError as e:
+        raise GenerationError(f"The API rejected the request: {e.message}") from e
+    except anthropic.APIStatusError as e:
+        raise GenerationError(f"Anthropic API error {e.status_code}. Try again shortly.") from e
+    except anthropic.APIConnectionError as e:
+        raise GenerationError("Couldn't reach the Anthropic API. Check your internet connection.") from e
+    except TypeError as e:
+        if "authentication" in str(e).lower():
+            raise GenerationError(
+                "No Anthropic API key found. Set ANTHROPIC_API_KEY in .env, or use the free "
+                "Gemini backend (CITERAG_LLM_PROVIDER=gemini)."
+            ) from e
+        raise
 
 
 def build_request(question: str, hits: list[Hit], model: str, max_tokens: int, effort: str) -> dict:

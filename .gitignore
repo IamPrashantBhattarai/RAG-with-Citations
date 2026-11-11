@@ -11,3 +11,4 @@ data/*
 eval/.cache/
 eval/runs/
 .cache/
+.chats/

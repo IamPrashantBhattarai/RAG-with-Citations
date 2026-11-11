@@ -48,6 +48,8 @@ OCR = os.getenv("CITERAG_OCR", "rapidocr")
 # Read the attachments of emails (.eml/.msg) as part of the email (Phase 11): PDF, Word, PowerPoint,
 # HTML, text and image attachments; inline images and logos are skipped. "0" lists them by name only.
 EMAIL_ATTACHMENTS = os.getenv("CITERAG_EMAIL_ATTACHMENTS", "1") == "1"
+# Saved chats (Phase 12): one JSON file per conversation. They quote the documents: keep them private.
+CHATS_DIR = Path(os.getenv("CITERAG_CHATS_DIR", ROOT_DIR / ".chats"))
 # Parsed pages, keyed by file content and parser settings, so unchanged files aren't parsed again.
 PARSE_CACHE_DIR = Path(os.getenv("CITERAG_PARSE_CACHE_DIR", ROOT_DIR / ".cache" / "parsed"))
 

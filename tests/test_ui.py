@@ -6,9 +6,10 @@ import streamlit as st
 from pypdf import PdfReader, PdfWriter
 from streamlit.testing.v1 import AppTest
 
-from citerag import ui
+from citerag import config, ui
 from citerag.generator import GenerationError
 from citerag.store import IndexReport
+from citerag.chats import Chat, ChatStore, Turn
 from citerag.validator import Check, Validation, Validator
 from tests.test_validator import HITS, FakeBackend, FakeNLI, answer, validate
 
@@ -196,8 +197,24 @@ class FailingBackend:
         raise GenerationError("Free-tier limit reached. Wait a minute and retry.")
 
 
+class ChatBackend(FakeBackend):
+    """Answers like FakeBackend; rewrites any follow-up to `rewrite`."""
+
+    rewrite = "What are the full marks for Web Technology?"
+
+    def __init__(self, text):
+        super().__init__(text)
+        self.completions = []
+
+    def complete(self, system, prompt):
+        self.completions.append(prompt)
+        return self.rewrite
+
+
 @pytest.fixture
-def app(monkeypatch):
+def app(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "CHATS_DIR", tmp_path / "chats")
+
     def run(reply="The pass marks are 45 [1]. Unit VII covers PHP [2].", docs=None, backend=None):
         monkeypatch.setattr(FakeStore, "docs", {"syllabus.pdf": 2} if docs is None else docs)
         monkeypatch.setattr("citerag.store.Store", FakeStore)
@@ -205,7 +222,7 @@ def app(monkeypatch):
         nli = FakeNLI()
         nli.model = "NLI MODEL"
         monkeypatch.setattr("citerag.validator.Validator", lambda: Validator(nli, threshold=0.5))
-        monkeypatch.setattr("citerag.generator.make_backend", lambda provider: backend or FakeBackend(reply))
+        monkeypatch.setattr("citerag.generator.make_backend", lambda provider: backend or ChatBackend(reply))
         st.cache_resource.clear()
         return AppTest.from_file(APP, default_timeout=30).run()
 
@@ -255,3 +272,37 @@ def test_remove_button_drops_a_document_from_the_index(app):
     at = app()
     at.sidebar.button[0].click().run()
     assert at.success[0].value == "Removed syllabus.pdf from the index."
+
+
+# -- chats (Phase 12) ---------------------------------------------------------------
+
+
+def test_a_follow_up_is_searched_as_a_standalone_question_and_the_chat_is_saved(app, tmp_path):
+    backend = ChatBackend("The pass marks are 45 [1].")
+    at = app(backend=backend)
+    at = at.chat_input[0].set_value("What are the pass marks?").run()
+    at = at.chat_input[0].set_value("And the full marks?").run()
+    assert not at.exception
+    captions = [c.value for c in at.main.caption]
+    assert "Searched for: What are the full marks for Web Technology?" in captions
+    assert len(backend.completions) == 1  # only the follow-up was rewritten
+    chat_id = at.query_params["chat"][0] if isinstance(at.query_params["chat"], list) else at.query_params["chat"]
+    saved = ChatStore(tmp_path / "chats").load(chat_id)
+    assert [(t.question, t.search) for t in saved.turns] == [
+        ("What are the pass marks?", "What are the pass marks?"),
+        ("And the full marks?", "What are the full marks for Web Technology?")]
+
+
+def test_a_saved_chat_reopens_from_the_address(app, tmp_path):
+    store = ChatStore(tmp_path / "chats")
+    chat = Chat()
+    chat.turns.append(Turn("What are the pass marks?", "What are the pass marks?", validate("The pass marks are 45 [1].")))
+    store.save(chat)
+    at = app()
+    assert "**What are the pass marks?**" not in [m.value for m in at.markdown]  # no address: a new chat
+    reopened = AppTest.from_file(APP, default_timeout=30)  # a fresh browser session, e.g. after a reload
+    reopened.query_params["chat"] = chat.id
+    reopened = reopened.run()
+    assert "**What are the pass marks?**" in [m.value for m in reopened.markdown]
+    assert any(b.label == "Delete this chat" for b in reopened.sidebar.button)
+    assert any(b.label == "What are the pass marks?" for b in reopened.sidebar.button)  # listed under Chats

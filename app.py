@@ -15,6 +15,8 @@ from pathlib import Path
 import streamlit as st
 
 from citerag import config, ui, web
+from citerag.chats import Chat, ChatStore, Turn
+from citerag.conversation import is_follow_up, standalone_question
 from citerag.generator import Answer, GenerationError, Generator, make_backend, pages_label
 from citerag.loaders import SUPPORTED_EXTENSIONS, LoaderError, load_dir, load_file
 from citerag.retriever import Retriever
@@ -47,6 +49,20 @@ def pipeline():
 @st.cache_resource
 def backend(provider: str):
     return make_backend(provider)
+
+
+@st.cache_resource
+def chat_store() -> ChatStore:
+    return ChatStore()
+
+
+def open_chat(chat: Chat) -> None:
+    """Show `chat`, and put its id in the address so a reload comes back to it."""
+    st.session_state.chat = chat
+    if chat.turns:
+        st.query_params["chat"] = chat.id
+    else:
+        st.query_params.pop("chat", None)
 
 
 @st.cache_data(max_entries=32, show_spinner=False)
@@ -110,11 +126,26 @@ def sidebar(store: Store) -> dict:
         strict = st.toggle("Strict mode", value=config.STRICT, disabled=not validate,
                            help="Remove statements that fail the checks. The answer appears once it "
                                 "has been checked instead of streaming.")
-        if st.button("Clear chat", width="stretch", disabled=not st.session_state.turns):
-            st.session_state.turns = []
-            st.rerun()
+        chats_section()
     return {"provider": provider, "sources": sources or None, "k": k,
             "validate": validate, "strict": strict and validate}
+
+
+def chats_section() -> None:
+    st.divider()
+    st.subheader("Chats")
+    current = st.session_state.chat
+    if st.button("New chat", width="stretch", disabled=not current.turns):
+        open_chat(Chat())
+        st.rerun()
+    for chat_id, title in chat_store().list():
+        if st.button(title, key=f"chat-{chat_id}", type="tertiary", disabled=chat_id == current.id):
+            open_chat(chat_store().load(chat_id) or Chat())
+            st.rerun()
+    if current.turns and st.button("Delete this chat", width="stretch"):
+        chat_store().delete(current.id)
+        open_chat(Chat())
+        st.rerun()
 
 
 def add_files(store: Store, files) -> None:
@@ -236,7 +267,8 @@ def show_answer(answer: Answer, turn: int) -> None:
 
 # -- page ----------------------------------------------------------------------------
 
-st.session_state.setdefault("turns", [])
+if "chat" not in st.session_state:  # first run of this browser session: reopen the chat in the address
+    st.session_state.chat = chat_store().load(st.query_params.get("chat", "")) or Chat()
 st.session_state.setdefault("flash", [])
 st.session_state.setdefault("upload_key", 0)
 
@@ -257,14 +289,25 @@ st.session_state.flash = []
 if not store.count():
     st.info("Add a PDF, TXT or MD file in the sidebar to get started.")
 
-for turn, answer in enumerate(st.session_state.turns):
-    st.markdown(f"**{ui.escape_md(answer.question)}**")
-    show_answer(answer, turn)
+chat: Chat = st.session_state.chat
+for i, turn in enumerate(chat.turns):
+    st.markdown(f"**{ui.escape_md(turn.question)}**")
+    if turn.search != turn.question:
+        st.caption(f"Searched for: {ui.escape_md(turn.search)}")
+    show_answer(turn.answer, i)
     st.divider()
 
 if question := st.chat_input("Ask a question about your documents", disabled=not store.count()):
     st.markdown(f"**{ui.escape_md(question)}**")
-    answer = ask(question, settings, retriever, validator)
+    search = question
+    if chat.turns and is_follow_up(question):
+        with st.spinner("Reading the follow-up…"):
+            search = standalone_question(question, chat.history(), backend(settings["provider"]))
+        if search != question:
+            st.caption(f"Searched for: {ui.escape_md(search)}")
+    answer = ask(search, settings, retriever, validator)
     if answer is not None:
-        st.session_state.turns.append(answer)
-        show_answer(answer, len(st.session_state.turns) - 1)
+        chat.turns.append(Turn(question, search, answer))
+        chat_store().save(chat)
+        open_chat(chat)
+        show_answer(answer, len(chat.turns) - 1)

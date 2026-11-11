@@ -4,6 +4,14 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Added — Phase 12: Multi-turn chat ([12-conversations.md](12-conversations.md))
+- `citerag/conversation.py` (new): a follow-up ("And how big is the deposit?") is rewritten by the LLM from the last three turns into a standalone question, which then goes through the unchanged search → cited answer → checks pipeline. The history never reaches the answering prompt. A cheap check (`is_follow_up`: pointing words, "what about…", four words or fewer) skips the call for questions that stand alone; on the 126 standalone eval questions it flags 3. Bad or failed rewrites fall back to the question as typed.
+- `Backend.complete()` on both backends. Claude: `beta.messages.create`, effort `low` (Claude Opus 5.5 always thinks and defaults to `medium`), 4,096 tokens, the same refusal fallback. Gemini: thinking `LOW`, same next-model fallback. Anthropic error mapping moved into one shared `_anthropic_errors`.
+- `citerag/chats.py` (new): one JSON file per chat in `.chats/` (git-ignored, `CITERAG_CHATS_DIR`), with each turn's question, what was searched, and the whole answer including its passages, so old chats keep their sources after a re-index. Ids are validated (they come from the URL).
+- App: the chat id is in the address (reload or bookmark to reopen); the sidebar **Chats** section has *New chat*, recent chats and *Delete this chat*, replacing *Clear chat*; a rewritten question shows "Searched for: …".
+- **Eval:** `eval/followups.json` and `eval/followups.py` (new): 12 two-turn chats built on real earlier answers, including a topic change. Evidence in the top 5: as typed 11/12, rewritten 12/12. **Answers: as typed 9/12, rewritten 12/12.** As typed, "How long does it run?" was answered about the Transformer's training time instead of the lease.
+- Tests: `test_conversation.py` (5), `test_chats.py` (4), +1 `test_generator.py`, +2 `test_gemini.py`, +2 `test_ui.py`. 255 passing.
+
 ### Added — Phase 11 (part 4): Email ([11-more-formats.md](11-more-formats.md#email-eml-msg))
 - `.eml` and Outlook `.msg` are read with Docling's email reader: the subject as title, From/To/Cc/Date, then the body. Cited by name and section.
 - **Attachments are read** (`CITERAG_EMAIL_ATTACHMENTS`, on by default): `citerag/mail.py` (new) extracts them, and each is read by the same loader as an upload. It's added under "## Attachment: <name>", with its headings renamed "### <name>: …". Inline and small images (logos), files over 25 MB and attachments past the first 20 are skipped; unreadable ones are listed. Safe names, each in its own temporary folder.

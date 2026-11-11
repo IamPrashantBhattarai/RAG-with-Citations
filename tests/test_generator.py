@@ -204,3 +204,29 @@ def test_files_without_pages_are_cited_by_name_only():
         assert location(source, 1, 1) == source and pages_label(source, 1, 1) == ""
     hit = Hit("c1", "Annual leave is 24 days.", "policy.docx", 1, 1, "1. Annual leave", 0, 24, 0.9)
     assert build_request("q", [hit], "m", 10, "low")["messages"][0]["content"][0]["title"] == "policy.docx"
+
+
+# -- complete(): short replies such as rewriting a follow-up (Phase 12) -----------
+
+
+def test_claude_complete_uses_low_effort_and_reads_the_text():
+    from citerag.generator import COMPLETE_MAX_TOKENS, FALLBACK_BETA
+
+    sent = []
+
+    def create(**request):
+        sent.append(request)
+        return NS(stop_reason="end_turn", content=[NS(type="thinking", thinking=""),
+                                                   NS(type="text", text=" What is the deposit? ")])
+
+    backend = ClaudeBackend(client=NS(beta=NS(messages=NS(create=create))), model="claude-opus-5-5")
+    assert backend.complete("Rewrite it.", "And the deposit?") == "What is the deposit?"
+    [r] = sent
+    assert r["output_config"] == {"effort": "low"} and r["system"] == "Rewrite it."
+    assert r["max_tokens"] == COMPLETE_MAX_TOKENS and r["betas"] == [FALLBACK_BETA] and r["fallbacks"] == "default"
+    assert "thinking" not in r  # Claude Opus 5.5 thinks anyway; effort is the control
+
+    for stop in ("refusal", "max_tokens"):
+        backend = ClaudeBackend(client=NS(beta=NS(messages=NS(create=lambda **r: NS(
+            stop_reason=stop, content=[NS(type="text", text="partial")])))), model="claude-opus-5-5")
+        assert backend.complete("s", "p") == ""

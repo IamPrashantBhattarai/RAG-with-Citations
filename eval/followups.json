@@ -1,0 +1,277 @@
+{
+ "about": "Phase 12 follow-up set. Each item is a two-turn chat: a first question from questions.json with the answer CiteRAG actually gave it (saved runs, 2026-11-10/11), then a follow-up that needs the first turn to be understood. fu-12 changes topic: the history must not leak into it. Evidence and facts are for the follow-up.",
+ "items": [
+  {
+   "id": "fu-01",
+   "history": [
+    {
+     "question": "What monthly rent did the landlord agree to for the Lakeside office in Pokhara?",
+     "answer": "The landlord agreed to a monthly rent of NPR 95,000 for the Lakeside office in Pokhara [1]."
+    }
+   ],
+   "question": "And how big is the deposit?",
+   "evidence": [
+    {
+     "source": "pokhara-office-lease.eml",
+     "quote": "with a deposit of three months' rent"
+    }
+   ],
+   "facts": [
+    [
+     "three months",
+     "3 months"
+    ]
+   ]
+  },
+  {
+   "id": "fu-02",
+   "history": [
+    {
+     "question": "When does the Pokhara office lease start?",
+     "answer": "The Pokhara office lease starts on 1 December 2026 [1]."
+    }
+   ],
+   "question": "How long does it run?",
+   "evidence": [
+    {
+     "source": "pokhara-office-lease.eml",
+     "quote": "The lease starts on 1 December 2026 and runs for three years."
+    }
+   ],
+   "facts": [
+    [
+     "three years",
+     "3 years"
+    ]
+   ]
+  },
+  {
+   "id": "fu-03",
+   "history": [
+    {
+     "question": "What was the Kathmandu region's revenue in Q3?",
+     "answer": "The Kathmandu region's Q3 revenue was NPR 27.6 million [1]."
+    }
+   ],
+   "question": "What about Pokhara?",
+   "evidence": [
+    {
+     "source": "q3-business-review.pptx",
+     "quote": "Region: Pokhara; Q2 revenue (NPR m): 7.2; Q3 revenue (NPR m): 9.1"
+    }
+   ],
+   "facts": [
+    [
+     "9.1"
+    ]
+   ]
+  },
+  {
+   "id": "fu-04",
+   "history": [
+    {
+     "question": "What was Northwind Analytics' revenue in Q3 2026?",
+     "answer": "Northwind Analytics' revenue in Q3 2026 reached NPR 42.5 million [1]."
+    }
+   ],
+   "question": "What is the target for the next quarter?",
+   "evidence": [
+    {
+     "source": "q3-business-review.pptx",
+     "quote": "Target revenue for Q4: NPR 48 million"
+    }
+   ],
+   "facts": [
+    [
+     "48"
+    ]
+   ]
+  },
+  {
+   "id": "fu-05",
+   "history": [
+    {
+     "question": "How many days of paid annual leave do full-time employees get?",
+     "answer": "Full-time employees receive 24 working days of paid annual leave per calendar year [1]."
+    }
+   ],
+   "question": "And sick leave?",
+   "evidence": [
+    {
+     "source": "leave-and-travel-policy.docx",
+     "quote": "Employees receive 12 days of paid sick leave per year."
+    }
+   ],
+   "facts": [
+    [
+     "12",
+     "twelve"
+    ]
+   ]
+  },
+  {
+   "id": "fu-06",
+   "history": [
+    {
+     "question": "What is the daily travel allowance for a Grade B manager?",
+     "answer": "The daily travel allowance for a Grade B manager is 4,500 Nepalese rupees (NPR) [1]."
+    }
+   ],
+   "question": "What about a Director?",
+   "evidence": [
+    {
+     "source": "leave-and-travel-policy.docx",
+     "quote": "Grade: A (Director); Daily allowance (NPR): 6,000"
+    }
+   ],
+   "facts": [
+    [
+     "6,000",
+     "6000"
+    ]
+   ]
+  },
+  {
+   "id": "fu-07",
+   "history": [
+    {
+     "question": "How much does a complete 3 kW rooftop solar system cost installed?",
+     "answer": "A complete 3 kW rooftop solar system costs about NPR 330,000 installed [1]."
+    }
+   ],
+   "question": "And the 5 kW one?",
+   "evidence": [
+    {
+     "source": "rooftop-solar-guide.html",
+     "quote": "System size: 5 kW; Installed price (NPR): 520,000"
+    }
+   ],
+   "facts": [
+    [
+     "520,000",
+     "520000"
+    ]
+   ]
+  },
+  {
+   "id": "fu-08",
+   "history": [
+    {
+     "question": "What BLEU score does the Transformer achieve on the WMT 2014 English-to-German task?",
+     "answer": "On the WMT 2014 English-to-German task, the big transformer model establishes a state-of-the-art BLEU score of 28.4 [1][2]."
+    }
+   ],
+   "question": "What about English-to-French?",
+   "evidence": [
+    {
+     "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+     "quote": [
+      "our model establishes a new single-model state-of-the-art BLEU score of 41.0",
+      "our big model achieves a BLEU score of 41.0",
+      "Model: Transformer (big); BLEU EN-DE: 28.4; BLEU EN-FR: 41.0"
+     ]
+    }
+   ],
+   "facts": [
+    [
+     "41.0",
+     "41"
+    ]
+   ]
+  },
+  {
+   "id": "fu-09",
+   "history": [
+    {
+     "question": "What are the pass marks for the Web Technology exam?",
+     "answer": "The pass marks for the external practical evaluation are 45 [1]."
+    }
+   ],
+   "question": "And the full marks?",
+   "evidence": [
+    {
+     "source": "bsccsit-syllabus-webtechnology.pdf",
+     "quote": "Full Marks: 100, Pass Marks: 45"
+    }
+   ],
+   "facts": [
+    [
+     "100"
+    ]
+   ]
+  },
+  {
+   "id": "fu-10",
+   "history": [
+    {
+     "question": "What top-1 accuracy does ViT-G/14 reach on ImageNet?",
+     "answer": "ViT-G/14 reaches 90.45% top-1 accuracy on ImageNet [1][2][3]."
+    }
+   ],
+   "question": "How many parameters does it have?",
+   "evidence": [
+    {
+     "source": "Zhai_Scaling_Vision_Transformers_CVPR_2022_paper.pdf",
+     "quote": [
+      "Name: G/14; Width: 1664; Depth: 48; MLP: 8192; Heads: 16; Mio. Param: 1843",
+      "ViT model with two billion parameters",
+      "which contains nearly two billion parameters"
+     ]
+    }
+   ],
+   "facts": [
+    [
+     "1843",
+     "1,843",
+     "two billion",
+     "2 billion",
+     "1.8 billion",
+     "1.84 billion"
+    ]
+   ]
+  },
+  {
+   "id": "fu-11",
+   "history": [
+    {
+     "question": "What were the total plan assets at the end of the year?",
+     "answer": "Based on the provided documents, the total plan assets at the end of the year were $60,000 [1]."
+    }
+   ],
+   "question": "And at the beginning of the year?",
+   "evidence": [
+    {
+     "source": "handwriting.pdf",
+     "quote": "6a Total plan assets 6a 50000 60000"
+    }
+   ],
+   "facts": [
+    [
+     "50000",
+     "50,000"
+    ]
+   ]
+  },
+  {
+   "id": "fu-12",
+   "history": [
+    {
+     "question": "What was Northwind Analytics' revenue in Q3 2026?",
+     "answer": "Northwind Analytics' revenue in Q3 2026 reached NPR 42.5 million [1]."
+    }
+   ],
+   "question": "How many days of paid annual leave do full-time employees get?",
+   "evidence": [
+    {
+     "source": "leave-and-travel-policy.docx",
+     "quote": "Full-time employees receive 24 working days of paid annual leave per calendar year."
+    }
+   ],
+   "facts": [
+    [
+     "24"
+    ]
+   ]
+  }
+ ]
+}
