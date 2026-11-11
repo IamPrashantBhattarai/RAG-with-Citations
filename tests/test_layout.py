@@ -335,3 +335,33 @@ def test_word_file_is_one_text_with_sections_tables_and_header(tmp_path):
     assert "1. Submit the request.\n2. Your manager approves it." in text
     assert "- Grade: A (Director); Hotel limit (NPR) Kathmandu: 18,000; Hotel limit (NPR) Other cities: 12,000" in text
     assert "$$a^{2}+b^{2}$$" in text
+
+
+# -- PowerPoint (Phase 11) -------------------------------------------------------------
+
+
+def make_pptx(path):
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    prs = Presentation()
+    s = prs.slides.add_slide(prs.slide_layouts[1])
+    s.shapes.title.text = "Q3 highlights"
+    s.placeholders[1].text_frame.text = "Revenue reached NPR 42.5 million"
+    s = prs.slides.add_slide(prs.slide_layouts[5])
+    s.shapes.title.text = "Revenue by region"
+    t = s.shapes.add_table(2, 2, Inches(1), Inches(2), Inches(6), Inches(1)).table
+    for (r, c), v in {(0, 0): "Region", (0, 1): "Growth", (1, 0): "Pokhara", (1, 1): "26%"}.items():
+        t.cell(r, c).text = v
+    s.notes_slide.notes_text_frame.text = "Pokhara grew fastest."
+    prs.slides.add_slide(prs.slide_layouts[6])  # a blank slide
+    prs.save(path)
+    return path
+
+
+@pytest.mark.skipif(not layout.available(), reason="docling not installed")
+def test_powerpoint_is_one_text_per_slide_with_notes(tmp_path):
+    s1, s2, s3 = layout.parse_file(make_pptx(tmp_path / "deck.pptx"))
+    assert s1 == "# Q3 highlights\n\n- Revenue reached NPR 42.5 million"  # a body placeholder is a bullet list
+    assert s2 == "# Revenue by region\n\n- Region: Pokhara; Growth: 26%\n\nSpeaker notes: Pokhara grew fastest."
+    assert s3 == ""

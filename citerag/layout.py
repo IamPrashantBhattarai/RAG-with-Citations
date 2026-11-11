@@ -61,6 +61,8 @@ OCR_ENGINES = ("rapidocr", "ocrmac", "off")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 # Formats without fixed pages (Phase 11): read as one text, cited by section rather than page.
 UNPAGED_EXTENSIONS = {".docx"}
+# Formats whose "pages" are slides (Phase 11): one text per slide, cited as "slide 3".
+SLIDE_EXTENSIONS = {".pptx"}
 FORM_PAGE_SHARE = 0.5  # a page this much covered by a "form" region is written row by row
 MIN_TEXT_LAYER_CHARS = 20  # a PDF page with fewer text-layer characters than this is OCR'd
 
@@ -121,6 +123,8 @@ def _convert(path: Path, formulas: str, ocr: str) -> list[str]:
         return _texts(_converter(formulas, ocr).convert(path))
     if path.suffix.lower() in UNPAGED_EXTENSIONS:
         return [document_text(_converter(formulas, "off").convert(path).document)]
+    if path.suffix.lower() in SLIDE_EXTENSIONS:
+        return slide_texts(_converter(formulas, "off").convert(path).document)
     pages = _texts(_converter(formulas, "off").convert(path))
     missing = [n for n, chars in enumerate(text_layer_chars(path), start=1) if chars < MIN_TEXT_LAYER_CHARS]
     if missing and ocr != "off":
@@ -145,6 +149,31 @@ def text_layer_chars(path: Path) -> list[int]:
 
 def _texts(result) -> list[str]:
     return page_texts(result.document, form_pages(result))
+
+
+def slide_texts(doc) -> list[str]:
+    """One markdown text per slide (index 0 = slide 1), each slide's speaker notes after it.
+
+    The slide title is its heading, so the chunker names the section after
+    it. Speaker notes often hold what the presenter says but the slide
+    doesn't, so they are kept, marked "Speaker notes:".
+    """
+    from docling_core.transforms.serializer.markdown import MarkdownDocSerializer, MarkdownParams
+    from docling_core.types.doc import ContentLayer
+
+    table_serializer, text_serializer = _serializers()
+
+    def serialize(n: int, layer) -> str:
+        params = MarkdownParams(pages={n}, layers={layer}, escape_html=False, escape_underscores=False,
+                                image_placeholder="")
+        return MarkdownDocSerializer(doc=doc, params=params, table_serializer=table_serializer(),
+                                     text_serializer=text_serializer()).serialize().text.strip()
+
+    texts = []
+    for n in range(1, max(doc.pages, default=0) + 1):
+        body, notes = serialize(n, ContentLayer.BODY), serialize(n, ContentLayer.NOTES)
+        texts.append(body + (f"\n\nSpeaker notes: {notes}" if notes else ""))
+    return texts
 
 
 def document_text(doc) -> str:
@@ -411,10 +440,10 @@ def _converter(formulas: str, ocr: str):
         opts.ocr_options = OcrMacOptions(lang=["en-US"])
     opts.table_structure_options.mode = TableFormerMode.ACCURATE
     return DocumentConverter(
-        allowed_formats=[InputFormat.PDF, InputFormat.IMAGE, InputFormat.DOCX],
+        allowed_formats=[InputFormat.PDF, InputFormat.IMAGE, InputFormat.DOCX, InputFormat.PPTX],
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts),
                         InputFormat.IMAGE: ImageFormatOption(pipeline_options=opts)},
-    )  # DOCX uses Docling's default Word reader: no layout model needed, the file has structure
+    )  # DOCX and PPTX use Docling's readers for them: no layout model needed, the file has structure
 
 
 def _cache_path(data: bytes, formulas: str, ocr: str) -> Path:

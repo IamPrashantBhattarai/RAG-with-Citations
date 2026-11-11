@@ -30,7 +30,8 @@ import anthropic
 from pathlib import Path
 
 from citerag import config
-from citerag.loaders import DOCUMENT_EXTENSIONS, TEXT_EXTENSIONS
+from citerag.layout import SLIDE_EXTENSIONS, UNPAGED_EXTENSIONS
+from citerag.loaders import TEXT_EXTENSIONS
 from citerag.store import Hit
 
 if TYPE_CHECKING:
@@ -341,13 +342,15 @@ def location(source: str, page_start: int, page_end: int) -> str:
 
 def has_pages(source: str) -> bool:
     """Word and text files have no fixed pages (they depend on the printer), so their "page 1" means nothing."""
-    return Path(source).suffix.lower() not in DOCUMENT_EXTENSIONS | TEXT_EXTENSIONS
+    return Path(source).suffix.lower() not in UNPAGED_EXTENSIONS | TEXT_EXTENSIONS
 
 
 def pages_label(source: str, page_start: int, page_end: int) -> str:
-    """"p. 3", "pp. 3-4", or "" for a file without pages."""
+    """"p. 3", "pp. 3-4", "slide 3", "slides 3-4", or "" for a file without pages."""
     if not has_pages(source):
         return ""
+    if Path(source).suffix.lower() in SLIDE_EXTENSIONS:
+        return f"slide {page_start}" if page_start == page_end else f"slides {page_start}-{page_end}"
     return f"p. {page_start}" if page_start == page_end else f"pp. {page_start}-{page_end}"
 
 

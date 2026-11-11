@@ -2,6 +2,8 @@
 
 **Status:** ✅ Done (2026-10-25) · Code: `citerag/chunker.py` · Tests: `tests/test_chunker.py` (14 passing)
 
+> **Update 2026-11-11 (Phase 11):** slide decks get one chunk per slide, and slides always start a new paragraph; `CHUNKER_VERSION` is now part of the index fingerprint. See [11-more-formats.md](11-more-formats.md#powerpoint-pptx).
+
 ## Goal
 
 Split documents into pieces that (a) each carry one coherent idea so the embedding represents it well, (b) fit fully inside the embedding model, and (c) can be traced back to an exact file, page and passage for citations.

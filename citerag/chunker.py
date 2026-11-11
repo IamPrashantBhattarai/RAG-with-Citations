@@ -33,11 +33,15 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from citerag import config
+from citerag.layout import SLIDE_EXTENSIONS
 from citerag.loaders import Page, load_paths
 
 TokenCounter = Callable[[list[str]], list[int]]
 
 HEADER_MAX_CHARS = 120
+# Bump when chunking logic changes (not just its settings), so indexes re-chunk every file.
+# 2: slide decks get one chunk per slide (Phase 11).
+CHUNKER_VERSION = 2
 HEADER_TOKEN_BUDGET = 48  # room reserved for "title > section" in embed_text
 SPECIAL_TOKENS = 2  # [CLS] + [SEP] added by the embedding model
 
@@ -151,7 +155,15 @@ class Chunker:
         source = pages[0].source
         text, page_offsets = _join_pages(pages)
         units = self._units(text)
-        groups = self._pack(units)
+        if _is_deck(source):
+            # One slide is one unit of meaning: never pack two slides into a chunk (a long
+            # slide is still split). Packed slides got cited as "slides 1-4", and a fact in one
+            # slide's notes was diluted among the others (its question fell below the gate).
+            ends = page_offsets[1:] + [len(text)]
+            groups = [g for start, end in zip(page_offsets, ends)
+                      for g in self._pack([u for u in units if start <= u.start < end])]
+        else:
+            groups = self._pack(units)
 
         title = _title(source)
         slug = _slug(source)
@@ -304,16 +316,26 @@ def chunk_pages(pages: Iterable[Page]) -> list[Chunk]:
 # -- helpers ---------------------------------------------------------------
 
 
+def _is_deck(source: str) -> bool:
+    return Path(source).suffix.lower() in SLIDE_EXTENSIONS
+
+
 def _join_pages(pages: list[Page]) -> tuple[str, list[int]]:
-    """Join pages; a page ending mid-sentence continues with a space, not a break."""
+    """Join pages; a page ending mid-sentence continues with a space, not a break.
+
+    Slides always start a new paragraph: they rarely end with a full stop, and
+    joined with a space the next slide's title ("# Q3 highlights") would land
+    mid-line and not be read as a heading.
+    """
     parts: list[str] = []
     offsets: list[int] = []
     pos = 0
+    deck = bool(pages) and _is_deck(pages[0].source)
     for i, page in enumerate(pages):
         body = page.text.strip()
         if i:
             prev = parts[-1].rstrip()
-            sep = "\n\n" if prev[-1:] in ".!?:\"”)]" else " "
+            sep = "\n\n" if deck or prev[-1:] in ".!?:\"”)]" else " "
             parts.append(sep)
             pos += len(sep)
         offsets.append(pos)

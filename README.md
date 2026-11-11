@@ -23,7 +23,7 @@ question ─► search (meaning + keywords) ─► rerank ─► top 5 passages
 
 | Stage | What happens | Code |
 |---|---|---|
-| Load | PDF, Word (.docx), TXT, Markdown and image files are read page by page (Word and text files as one text, cited by section rather than page). Scanned pages, photos and images are read with OCR (RapidOCR); a page that is mostly a form is read row by row, so each value stays next to its label. PDFs go through Docling's layout model: reading order across columns, headings, and tables written one row per line with each value next to its column name. Page headers, footers and text inside figures are dropped. Parsed files are cached, so only new or changed files are parsed again. If Docling can't read a file, pypdf does. Page numbers match what a PDF viewer shows. | `citerag/loaders.py`, `citerag/layout.py` |
+| Load | PDF, Word (.docx), PowerPoint (.pptx), TXT, Markdown and image files are read page by page (slides one per page with their speaker notes, cited as "slide 3"; Word and text files as one text, cited by section). Scanned pages, photos and images are read with OCR (RapidOCR); a page that is mostly a form is read row by row, so each value stays next to its label. PDFs go through Docling's layout model: reading order across columns, headings, and tables written one row per line with each value next to its column name. Page headers, footers and text inside figures are dropped. Parsed files are cached, so only new or changed files are parsed again. If Docling can't read a file, pypdf does. Page numbers match what a PDF viewer shows. | `citerag/loaders.py`, `citerag/layout.py` |
 | Chunk | Pages are split into passages of about 384 tokens, along sentence and section boundaries, with a small overlap so a fact isn't cut in half. | `citerag/chunker.py` |
 | Embed and store | Each passage is turned into a vector with `BAAI/bge-base-en-v1.5` and saved in a local ChromaDB index. Re-indexing only re-embeds files that changed. | `citerag/store.py` |
 | Search | Two searches find candidates. One matches meaning (vectors) and the other matches exact words, names and codes (BM25). Their results are merged, and a reranker model (`gte-reranker-modernbert-base`) reorders the top 10. If nothing is close enough to the question, no LLM is called. | `citerag/retriever.py` |
@@ -85,7 +85,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 It opens at http://localhost:8501. The first start takes a little longer while the models load.
 
-1. **Add documents.** Upload PDF, Word (.docx), TXT, MD or image files (PNG, JPG, TIFF…; scans and photos are read with OCR) in the sidebar, or put them in `data/` and click **Rescan data/ folder**.
+1. **Add documents.** Upload PDF, Word (.docx), PowerPoint (.pptx), TXT, MD or image files (PNG, JPG, TIFF…; scans and photos are read with OCR) in the sidebar, or put them in `data/` and click **Rescan data/ folder**.
 2. **Ask a question** in the box at the bottom.
 3. **Read the answer.** Citations appear as small numbers. Below the answer:
    - **Sources**: one per citation. Open it to see the whole passage with the quote highlighted, and **Show PDF** to see the cited page.

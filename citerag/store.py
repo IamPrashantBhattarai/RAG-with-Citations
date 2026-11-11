@@ -32,7 +32,7 @@ from typing import Iterable, Protocol
 import numpy as np
 
 from citerag import config
-from citerag.chunker import Chunk, Chunker
+from citerag.chunker import CHUNKER_VERSION, Chunk, Chunker
 from citerag.loaders import Page, load_paths
 
 log = logging.getLogger(__name__)
@@ -262,6 +262,7 @@ class Store:
             self.chunker.chunk_size,
             self.chunker.overlap,
             self.chunker.min_tokens,
+            CHUNKER_VERSION,
         )
         h.update(repr(settings).encode())
         for p in sorted(pages, key=lambda p: p.page):

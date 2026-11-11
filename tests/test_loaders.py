@@ -353,3 +353,13 @@ def test_old_word_files_say_what_to_do(tmp_path):
     (tmp_path / "old.doc").write_bytes(b"\xd0\xcf\x11\xe0")
     with pytest.raises(LoaderError, match="save it as .docx or PDF"):
         load_file(tmp_path / "old.doc")
+
+
+def test_powerpoint_loads_one_page_per_slide(tmp_path, monkeypatch):
+    deck = tmp_path / "deck.pptx"
+    deck.write_bytes(b"PK")
+    monkeypatch.setattr(layout, "parse_file", lambda path: ["# Intro", "", "# Results\n\n26%"])
+    assert [(p.page, p.text) for p in load_file(deck)] == [(1, "# Intro"), (3, "# Results\n\n26%")]
+    (tmp_path / "old.ppt").write_bytes(b"\xd0\xcf")
+    with pytest.raises(LoaderError, match="save it as .pptx or PDF"):
+        load_file(tmp_path / "old.ppt")

@@ -17,7 +17,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | [08-evaluation.md](08-evaluation.md) | Question set on the user's documents, retrieval and answer benchmarks, reranker switched on, citation checks tuned on real answers | ✅ Done |
 | [09-layout-parsing.md](09-layout-parsing.md) | Layout-aware PDF parsing with Docling (benchmarked against pypdf and Marker): tables as one line per row, checked formulas, parse cache, pypdf fallback | ✅ Done |
 | [10-ocr.md](10-ocr.md) | OCR for scanned pages, photos and images (RapidOCR, benchmarked against EasyOCR and Apple Vision); forms read row by row; OCR only where there's no text layer | ✅ Done |
-| [11-more-formats.md](11-more-formats.md) | More file formats, one at a time: Word done; PowerPoint, HTML/web pages and email next | 🔄 In progress |
+| [11-more-formats.md](11-more-formats.md) | More file formats, one at a time: Word and PowerPoint done; HTML/web pages and email next | 🔄 In progress |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
 
@@ -36,7 +36,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | 8 | Evaluation + tuning | ✅ |
 | 9 | Layout-aware PDF parsing (first "industry grade" step) | ✅ |
 | 10 | OCR for scans, photos and images (second step) | ✅ |
-| 11 | More file formats (third step): Word ✅, PowerPoint, HTML/web pages, email | 🔄 |
+| 11 | More file formats (third step): Word ✅, PowerPoint ✅, HTML/web pages, email | 🔄 |
 
 ## Key decisions
 

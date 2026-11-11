@@ -1,6 +1,6 @@
 # Phase 11 — More file formats
 
-**Status:** 🔄 In progress: Word (.docx) done (2026-11-11). Next: PowerPoint, HTML and web pages, email · Code so far: `citerag/layout.py`, `citerag/loaders.py`, `citerag/generator.py`, `citerag/gemini.py`, `citerag/validator.py`, `app.py` · Tests so far: +2 `tests/test_layout.py`, +2 `tests/test_loaders.py`, +1 `tests/test_generator.py`; 224 passing in total
+**Status:** 🔄 In progress: Word (.docx) and PowerPoint (.pptx) done (2026-11-11). Next: HTML and web pages, email · Code so far: `citerag/layout.py`, `citerag/loaders.py`, `citerag/chunker.py`, `citerag/store.py`, `citerag/generator.py`, `citerag/gemini.py`, `citerag/validator.py`, `app.py` · Tests so far: +3 `tests/test_layout.py`, +3 `tests/test_loaders.py`, +1 `tests/test_generator.py`, +1 `tests/test_chunker.py`; 231 passing in total
 
 ## Goal
 
@@ -50,3 +50,37 @@ The eval set gains `leave-and-travel-policy.docx` with 9 questions (docx-01 to d
 - **Pictures inside a Word file aren't read.** A scanned page pasted into a .docx is skipped (Docling's Word reader doesn't OCR them).
 - **Comments, tracked changes and text boxes** are whatever Docling's Word reader gives; they weren't tested.
 - **Long Word files have no page numbers in citations.** The section heading is the only pointer.
+
+## PowerPoint (.pptx)
+
+### What Docling gives
+
+Docling reads `.pptx` from the file's structure, one page per slide. The slide title becomes a `#` heading, bullets are kept, and tables become one line per row. **Speaker notes** are found but put in a separate "notes" layer that the default output leaves out. The test deck `data/q3-business-review.pptx` was written for this phase (a fictional company's quarterly review). It has a title slide, bullet slides with numbers, a revenue-by-region table, and speaker notes holding a fact that isn't on any slide ("The board approved hiring two data engineers in October").
+
+### Decisions
+
+- **Speaker notes are kept,** after their slide, marked "Speaker notes:". Presenters put there what they say but don't show.
+- **Citations say "slide 3"**, not "p. 3" (`generator.pages_label`).
+- **One chunk per slide.** The first run packed slides 1–4 into one chunk. Citations said "slides 1–4", every chunk took the deck title as its section, and the speaker-notes question fell below the relevance gate (best cosine 0.431 < 0.45): one sentence of notes was diluted among four slides. Worse, `chunker._join_pages` joins pages with a space when a page doesn't end with a full stop, which suits PDF paragraphs running across pages but not slides, which rarely end with one. So "# Q3 highlights" landed mid-line and wasn't read as a heading. Now slides always start a new paragraph, and a chunk never spans two slides; a long slide is still split. The notes question's cosine went from 0.431 to 0.527.
+- **`CHUNKER_VERSION`** (new, now 2) is part of each file's index fingerprint. Before, the fingerprint only covered the file's text and the chunk settings, so a change in chunking *logic* left old chunks in existing indexes. Bumping it re-chunks and re-embeds every file once.
+- **Old `.ppt` files** get "save it as .pptx or PDF".
+
+### Evaluation
+
+9 questions (pptx-01 to pptx-09): revenue, growth, a new client, churn, two table questions (the fastest-growing region, and Kathmandu's Q3 revenue, competing with the Word file's Kathmandu hotel limits), the Q4 target, the launch month, and the speaker-notes fact. Plus **un-11** (the CEO's name). 111 questions in total, 85 answerable.
+
+- **Retrieval** (6 documents, 98 chunks): all 9 in the top 5. Reranker R@1 0.83, R@5 0.98; the misses are still att-17 and multi-01. The other documents' chunks are unchanged (same counts). Gate: 0 answerable questions rejected. off-08 (an exchange-rate question) now scores 0.556 against the "Risks" slide, which really mentions exchange-rate exposure, so it passes the gate.
+- **Answers** (`gemini-3.5-flash-lite`): **9/9 correct**. Each cites the exact slide, and the highlighted quote is on the evidence in all 9. **No checker warnings:** the two table answers were confirmed by the new table rule. un-11 and off-08 were both declined.
+
+### Tests
+
+- `test_layout.py`: a real deck built with python-pptx gives one text per slide: the title as a heading, bullets, a table row, the slide's speaker notes, and "" for a blank slide.
+- `test_loaders.py`: one page per slide (blank slides skipped, numbering kept); `.ppt` says to save as .pptx or PDF.
+- `test_chunker.py`: a deck gets one chunk per slide with the slide titles as sections, while the same pages as a PDF are packed together; slides always join with a paragraph break.
+- `test_generator.py`: "slide 3", "slides 3-4".
+
+### Limitations
+
+- **Charts, SmartArt and images on slides aren't read** (a screenshot of a table, for example). OCR on embedded images is the open item noted under Word.
+- **Slide order is file order;** hidden slides are read like the others.
+

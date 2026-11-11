@@ -199,6 +199,7 @@ def test_files_without_pages_are_cited_by_name_only():
     from citerag.generator import location, pages_label
 
     assert location("paper.pdf", 3, 4) == "paper.pdf, pp. 3-4" and pages_label("scan.png", 1, 1) == "p. 1"
+    assert location("deck.pptx", 3, 3) == "deck.pptx, slide 3" and pages_label("deck.pptx", 3, 4) == "slides 3-4"
     for source in ("policy.docx", "notes.md", "readme.txt"):  # "page 1" of these means nothing
         assert location(source, 1, 1) == source and pages_label(source, 1, 1) == ""
     hit = Hit("c1", "Annual leave is 24 days.", "policy.docx", 1, 1, "1. Annual leave", 0, 24, 0.9)

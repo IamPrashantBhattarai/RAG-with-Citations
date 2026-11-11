@@ -138,3 +138,15 @@ def test_real_tokenizer_keeps_embed_text_within_model_limit():
     for c, n in zip(chunks, count([c.embed_text for c in chunks])):
         assert c.n_tokens <= 384
         assert n + 2 <= 512
+
+
+def test_slide_decks_get_one_chunk_per_slide():
+    slides = ["# Q3 highlights\n\n- Revenue reached NPR 42.5 million", "# Revenue by region\n\n- Pokhara: 26%",
+              "# Q4 roadmap\n\n- Open a sales office\n\nSpeaker notes: The board approved two hires."]
+    chunks = make(size=40, min_tokens=30).chunk_document([Page(t, "deck.pptx", i) for i, t in enumerate(slides, 1)])
+    assert [(c.page_start, c.page_end, c.section) for c in chunks] == [
+        (1, 1, "Q3 highlights"), (2, 2, "Revenue by region"), (3, 3, "Q4 roadmap")]
+    # The same short pages in a PDF are packed together, and a page without a full stop runs on.
+    pdf = make(size=40, min_tokens=30).chunk_document([Page(t, "deck.pdf", i) for i, t in enumerate(slides, 1)])
+    assert len(pdf) == 1 and _join_pages([Page("no stop", "a.pdf", 1), Page("next", "a.pdf", 2)])[0] == "no stop next"
+    assert _join_pages([Page("no stop", "a.pptx", 1), Page("next", "a.pptx", 2)])[0] == "no stop\n\nnext"

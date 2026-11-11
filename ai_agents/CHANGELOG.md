@@ -4,6 +4,13 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Added — Phase 11 (part 2): PowerPoint files ([11-more-formats.md](11-more-formats.md#powerpoint-pptx))
+- `.pptx` files are read with Docling's PowerPoint reader, one page per slide. The slide title becomes the section, and tables become rows. **Speaker notes** are kept after their slide ("Speaker notes: …"). Citations say "slide 3". Old `.ppt` files get "save it as .pptx or PDF".
+- `citerag/chunker.py`: **one chunk per slide**, and slides always start a new paragraph. Before, slides 1–4 shared a chunk: they were cited as "slides 1–4", slide titles weren't recognised as headings (pages without a full stop were joined with a space), and the speaker-notes question fell below the relevance gate (0.431). Now it scores 0.527.
+- `CHUNKER_VERSION` (2) is part of the index fingerprint, so a change in chunking logic re-chunks every file once. The next index re-embeds all files.
+- **Eval:** `data/q3-business-review.pptx` (a test deck written for this) and 9 questions plus un-11. Retrieval: 9/9 in the top 5. Answers: 9/9 correct, each citing the exact slide, with no checker warnings; un-11 and the off-topic exchange-rate question declined.
+- Tests: +1 `test_layout.py`, +1 `test_loaders.py`, +1 `test_chunker.py`; `test_generator.py` extended. 231 passing.
+
 ### Changed — The checker reads tables ([06-citation-checks.md](06-citation-checks.md#update-2026-11-11-tables-and-forms))
 - `citerag/validator.py`: when every number in a statement comes from table rows, `table_verdict` checks that each number sits in a column and row the statement names, with no NLI call. A number from another column or row is flagged precisely: "6,000 is the Daily allowance (NPR) for Grade A (Director) in the cited table". Unclear cases go to NLI as before. Form rows also get the two lines above them as a premise (`line_windows`).
 - `eval/checks.py` (new): a re-runnable checker benchmark on saved answers. True statements, plus each number swapped for another from the same table row or line.

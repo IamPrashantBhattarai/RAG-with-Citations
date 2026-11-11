@@ -5,7 +5,8 @@
     "NIPS-2017-attention-is-all-you-need-Paper.pdf",
     "Zhai_Scaling_Vision_Transformers_CVPR_2022_paper.pdf",
     "handwriting.pdf",
-    "leave-and-travel-policy.docx"
+    "leave-and-travel-policy.docx",
+    "q3-business-review.pptx"
   ],
   "questions": [
     {"id": "syl-01", "kind": "single", "question": "What are the pass marks for the Web Technology exam?",
@@ -223,6 +224,15 @@
     {"id": "docx-07", "kind": "single", "question": "When is a medical certificate needed for sick leave?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "A medical certificate is required for absences longer than 2 consecutive days."}], "facts": [["2", "two"]]},
     {"id": "docx-08", "kind": "single", "question": "Who must approve travel costing more than NPR 100,000?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Travel costing more than NPR 100,000 per trip requires approval by the Finance Director."}], "facts": [["Finance Director"]]},
     {"id": "docx-09", "kind": "single", "question": "What is the document number of the leave and travel policy?", "evidence": [{"source": "leave-and-travel-policy.docx", "quote": "Confidential — document number HR-POL-014"}], "facts": [["HR-POL-014"]]},
+    {"id": "pptx-01", "kind": "single", "question": "What was Northwind Analytics' revenue in Q3 2026?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Revenue reached NPR 42.5 million, up 18% on Q2"}], "facts": [["42.5"]]},
+    {"id": "pptx-02", "kind": "single", "question": "By how much did revenue grow from Q2 to Q3?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Revenue reached NPR 42.5 million, up 18% on Q2"}], "facts": [["18%", "18 percent"]]},
+    {"id": "pptx-03", "kind": "single", "question": "Which bank signed as a new enterprise client in Q3?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Three new enterprise clients signed, including Himal Bank"}], "facts": [["Himal Bank"]]},
+    {"id": "pptx-04", "kind": "single", "question": "What was customer churn in Q3?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Customer churn fell to 2.1%"}], "facts": [["2.1%", "2.1 percent"]]},
+    {"id": "pptx-05", "kind": "single", "question": "Which region's revenue grew fastest in Q3?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Region: Pokhara; Q2 revenue (NPR m): 7.2; Q3 revenue (NPR m): 9.1; Growth: 26%"}], "facts": [["Pokhara"]]},
+    {"id": "pptx-06", "kind": "single", "question": "What was the Kathmandu region's revenue in Q3?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Region: Kathmandu; Q2 revenue (NPR m): 24.0; Q3 revenue (NPR m): 27.6"}], "facts": [["27.6"]]},
+    {"id": "pptx-07", "kind": "single", "question": "What is the revenue target for Q4?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Target revenue for Q4: NPR 48 million"}], "facts": [["48"]]},
+    {"id": "pptx-08", "kind": "single", "question": "How many data engineers did the board approve hiring?", "evidence": [{"source": "q3-business-review.pptx", "quote": "The board approved hiring two data engineers in October."}], "facts": [["two", "2"]]},
+    {"id": "pptx-09", "kind": "single", "question": "When will the self-service dashboard launch?", "evidence": [{"source": "q3-business-review.pptx", "quote": "Launch the self-service dashboard in November"}], "facts": [["November"]]},
 
     {"id": "un-01", "kind": "unanswerable", "question": "Who is the instructor for Web Technology I?",
      "evidence": [], "facts": []},
@@ -243,6 +253,8 @@
     {"id": "un-09", "kind": "unanswerable", "question": "What is the plan administrator's telephone number on the Form 5500-EZ?",
      "evidence": [], "facts": [], "forbidden": ["011536259"]},
     {"id": "un-10", "kind": "unanswerable", "question": "How many days of paternity leave do employees get under the leave policy?",
+     "evidence": [], "facts": []},
+    {"id": "un-11", "kind": "unanswerable", "question": "Who is the chief executive of Northwind Analytics?",
      "evidence": [], "facts": []},
 
     {"id": "off-01", "kind": "off_topic", "question": "How do I bake sourdough bread?", "evidence": [], "facts": []},
