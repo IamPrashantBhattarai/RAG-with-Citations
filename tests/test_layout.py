@@ -1,3 +1,6 @@
+from pathlib import Path
+from types import SimpleNamespace as NS
+
 import pytest
 
 pytest.importorskip("docling_core")
@@ -7,6 +10,8 @@ from docling_core.types.doc import (BoundingBox, DocItemLabel, DoclingDocument, 
 
 from citerag import config, layout
 from tests.test_loaders import body, make_pdf
+
+FORM = Path(__file__).parent.parent / "data" / "handwriting.pdf"
 
 
 @pytest.fixture(autouse=True)
@@ -136,23 +141,25 @@ def test_page_texts_one_markdown_text_per_page():
     assert p2 == "Table 2: Results.\n\n- Model: big; BLEU: 28.4"
 
 
-def test_parse_pdf_is_cached_by_content_and_settings(tmp_path, monkeypatch, parse_cache):
+def test_parse_file_is_cached_by_content_and_settings(tmp_path, monkeypatch, parse_cache):
     calls = []
 
     class FakeConverter:
         def convert(self, path):
             calls.append(path)
-            return type("R", (), {"document": doc_with(("text", 1, "Hello."), ("text", 2, "World."))})
+            return NS(document=doc_with(("text", 1, "Hello."), ("text", 2, "World.")), pages=[])
 
-    monkeypatch.setattr(layout, "_converter", lambda formulas: FakeConverter())
+    monkeypatch.setattr(layout, "_converter", lambda formulas, ocr: FakeConverter())
+    monkeypatch.setattr(layout, "text_layer_chars", lambda path: [100, 100])  # no page needs OCR
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF one")
-    assert layout.parse_pdf(pdf) == ["Hello.", "World."]
-    assert layout.parse_pdf(pdf) == ["Hello.", "World."] and len(calls) == 1
-    layout.parse_pdf(pdf, formulas="latex")  # different settings: parsed again
+    assert layout.parse_file(pdf) == ["Hello.", "World."]
+    assert layout.parse_file(pdf) == ["Hello.", "World."] and len(calls) == 1
+    layout.parse_file(pdf, formulas="latex")  # different settings: parsed again
+    layout.parse_file(pdf, ocr="off")
     pdf.write_bytes(b"%PDF two")  # changed file: parsed again
-    layout.parse_pdf(pdf)
-    assert len(calls) == 3 and len(list(parse_cache.iterdir())) == 3
+    layout.parse_file(pdf)
+    assert len(calls) == 4 and len(list(parse_cache.iterdir())) == 4
 
 
 def test_conversion_errors_become_layout_errors(tmp_path, monkeypatch):
@@ -160,17 +167,122 @@ def test_conversion_errors_become_layout_errors(tmp_path, monkeypatch):
         def convert(self, path):
             raise RuntimeError("bad page tree")
 
-    monkeypatch.setattr(layout, "_converter", lambda formulas: Broken())
+    monkeypatch.setattr(layout, "_converter", lambda formulas, ocr: Broken())
     (tmp_path / "x.pdf").write_bytes(b"%PDF")
     with pytest.raises(layout.LayoutError, match="bad page tree"):
-        layout.parse_pdf(tmp_path / "x.pdf")
+        layout.parse_file(tmp_path / "x.pdf")
     with pytest.raises(ValueError, match="CITERAG_PDF_FORMULAS"):
-        layout.parse_pdf(tmp_path / "x.pdf", formulas="mathml")
+        layout.parse_file(tmp_path / "x.pdf", formulas="mathml")
+    with pytest.raises(ValueError, match="CITERAG_OCR"):
+        layout.parse_file(tmp_path / "x.pdf", ocr="tesseract")
+    monkeypatch.setattr(layout.importlib.util, "find_spec", lambda name: None)
+    with pytest.raises(ValueError, match="pip install ocrmac"):
+        layout.parse_file(tmp_path / "x.pdf", ocr="ocrmac")
+
+
+# -- forms -----------------------------------------------------------------------------
+
+
+def test_rows_text_reads_each_visual_row_left_to_right():
+    boxes = [  # (top, bottom, left, right, text), in no particular order
+        (500, 512, 400, 460, "$60000"), (500, 512, 40, 200, "6a Total plan assets"),
+        (501, 513, 300, 360, "$50000"),
+        (520, 532, 40, 200, "b  Total plan liabilities"), (521, 535, 300, 350, "$4000"),
+        (10, 30, 300, 350, "Form"), (11, 30, 358, 440, "Number:"), (10, 31, 450, 560, "CA530082"),  # one phrase
+        (600, 612, 40, 60, "  "),  # empty boxes are dropped
+    ]
+    assert layout.rows_text(boxes) == ("Form Number: CA530082\n"
+                                       "6a Total plan assets   $50000   $60000\n"
+                                       "b Total plan liabilities   $4000")
+
+
+def page(form_share, cells, page_no=1, checkbox=None):
+    """A fake Docling page: one 'form' region covering `form_share` of a 100x100 page."""
+    def box(top, left, right):
+        b = NS(t=top, b=top + 5, l=left, r=right)
+        return NS(to_top_left_origin=lambda page_height: b, area=lambda: 25.0)
+
+    def cell(i, top, left, text):
+        return NS(index=i, text=text, rect=NS(to_bounding_box=lambda: box(top, left, left + 4 * len(text))))
+
+    form = NS(label=NS(value="form"), bbox=NS(area=lambda: form_share * 100 * 100),
+              cells=[cell(i, *c) for i, c in enumerate(cells)])
+    header = NS(label=NS(value="page_header"), bbox=NS(area=lambda: 50.0), cells=[cell(99, 1, 10, "Form No. 7")])
+    clusters = [header, form]
+    if checkbox:
+        clusters.append(NS(label=NS(value=checkbox[0]), bbox=box(*checkbox[1:]), cells=[]))
+    return NS(page_no=page_no, size=NS(width=100, height=100), predictions=NS(layout=NS(clusters=clusters)))
+
+
+def test_only_pages_that_are_mostly_a_form_are_written_by_rows():
+    result = NS(pages=[page(0.76, [(50, 10, "Total assets"), (50, 80, "50000"), (70, 10, "(1) first return")],
+                            checkbox=("checkbox_selected", 70, 2, 6)),
+                       page(0.20, [(50, 10, "a small form box")], page_no=2)])
+    assert layout.form_pages(result) == {1: "Form No. 7\nTotal assets   50000\n[x] (1) first return"}
+    # A checkbox drawn inside a line's box ("(1) [x] the first…") still goes in front of it.
+    inside = NS(pages=[page(0.9, [(70, 10, "(1) the first return")], checkbox=("checkbox_selected", 70, 22, 26))])
+    assert layout.form_pages(inside)[1].endswith("[x] (1) the first return")
+
+
+@pytest.mark.skipif(not (layout.available() and FORM.is_file()), reason="docling or data/handwriting.pdf missing")
+def test_handwritten_form_values_stay_next_to_their_labels():
+    [text] = layout.parse_file(FORM, ocr="rapidocr")
+    lines = text.split("\n")
+    assert lines[0] == "Form Number: CA530082"
+    assert any(l.startswith("6a Total plan assets") and "50000" in l and "60000" in l for l in lines)
+    assert any("5a(1)" in l and l.endswith("10") for l in lines)
+    for value in ("Acme Corp", "735268329", "011536259", "02/05/2022", "532678", "5732900"):
+        assert value in text
+
+
+# -- OCR -------------------------------------------------------------------------------
+
+
+def draw(path, lines, size=(1200, 500)):
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("L", size, 255)
+    font = ImageFont.load_default(size=40)
+    for i, line in enumerate(lines):
+        ImageDraw.Draw(img).text((60, 60 + 70 * i), line, fill=0, font=font)
+    img.save(path)
+    return img
+
+
+@pytest.mark.skipif(not layout.available(), reason="docling not installed")
+def test_ocr_reads_images_and_scanned_pdfs(tmp_path):
+    lines = ["Invoice number 4471", "Total due: 980 rupees", "Paid by bank transfer"]
+    img = draw(tmp_path / "invoice.png", lines)
+    img.save(tmp_path / "scan.pdf", "PDF", resolution=150)  # an image-only PDF, like a scanner makes
+    for path in (tmp_path / "invoice.png", tmp_path / "scan.pdf"):
+        [text] = layout.parse_file(path, ocr="rapidocr")
+        for word in ("Invoice", "4471", "980", "transfer"):
+            assert word in text, (path.name, text)
+    assert layout.parse_file(tmp_path / "scan.pdf", ocr="off") == [""]  # no text layer, no OCR
+
+
+@pytest.mark.skipif(not layout.available(), reason="docling not installed")
+def test_only_pages_without_a_text_layer_are_ocrd(tmp_path):
+    from pypdf import PdfReader, PdfWriter
+
+    draw(tmp_path / "p.png", ["Scanned page about volcanoes"]).save(tmp_path / "scan.pdf", "PDF", resolution=150)
+    text_pdf = make_pdf(tmp_path / "text.pdf", [body(1), body(2)])
+    writer = PdfWriter()
+    for part in (text_pdf, tmp_path / "scan.pdf"):
+        for p in PdfReader(part).pages:
+            writer.add_page(p)
+    with open(tmp_path / "mixed.pdf", "wb") as fh:
+        writer.write(fh)
+
+    assert [n > 0 for n in layout.text_layer_chars(tmp_path / "mixed.pdf")] == [True, True, False]
+    p1, p2, p3 = layout.parse_file(tmp_path / "mixed.pdf", ocr="rapidocr")
+    assert [p1, p2] == layout.parse_file(text_pdf, ocr="off")  # text pages exactly as without OCR
+    assert "volcanoes" in p3
 
 
 @pytest.mark.skipif(not layout.available(), reason="docling not installed")
 def test_real_docling_reads_a_pdf_page_by_page(tmp_path):
     pdf = make_pdf(tmp_path / "r.pdf", [body(1), [], body(3)])
-    p1, p2, p3 = layout.parse_pdf(pdf)
+    p1, p2, p3 = layout.parse_file(pdf)
     assert "apples" in p1 and p2 == "" and "comets" in p3
     assert "bridges" not in p1 + p3

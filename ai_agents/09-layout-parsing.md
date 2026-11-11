@@ -141,5 +141,5 @@ The existing loader tests now pin `pypdf`: they test its cleanup.
 - **att-17 is still missed.** The row now reads `big; …; params ×106: 213`, but the question says "parameters" and the table says "params", and nothing in the row says "Transformer". Retrieval would need query expansion or a table-aware index.
 - **Superscripts are flattened** the same way as before: `×106` is ×10⁶, `1019` is 10¹⁹, `2242` is 224².
 - **The first column of a table often has no header** (Table 3's `base`/`big`), so its value appears without a label.
-- **Scanned PDFs** still have no text: OCR is off until the next step.
+- **Scanned PDFs** still have no text: OCR is off until the next step. *(Done in Phase 10: [10-ocr.md](10-ocr.md).)*
 - **Formulas** stay as PDF text unless `latex` mode is on, and then only matching LaTeX is kept.

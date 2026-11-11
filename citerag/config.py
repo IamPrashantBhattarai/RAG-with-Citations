@@ -40,6 +40,11 @@ PDF_PARSER = os.getenv("CITERAG_PDF_PARSER", "docling")
 # only when it agrees with the PDF text (it misread 3 of 5 formulas in the Attention paper and
 # adds about 20 s per formula on a laptop; see ai_agents/09-layout-parsing.md).
 PDF_FORMULAS = os.getenv("CITERAG_PDF_FORMULAS", "text")
+# OCR for scanned pages, photos and image files (Phase 10): "rapidocr" (any OS), "ocrmac"
+# (Apple Vision, macOS only, `pip install ocrmac`), or "off". RapidOCR read 17/17 handwritten
+# values on the test form; Apple Vision 15/17 but glued fewer words on printed scans
+# (ai_agents/10-ocr.md). Pages that have a text layer keep it either way.
+OCR = os.getenv("CITERAG_OCR", "rapidocr")
 # Parsed pages, keyed by file content and parser settings, so unchanged files aren't parsed again.
 PARSE_CACHE_DIR = Path(os.getenv("CITERAG_PARSE_CACHE_DIR", ROOT_DIR / ".cache" / "parsed"))
 

@@ -129,6 +129,9 @@ def test_source_pdf_stays_inside_the_folder(tmp_path):
     (tmp_path / "secret.pdf").write_bytes(b"%PDF")
     (tmp_path / "data" / "notes.md").write_text("x")
     assert ui.source_pdf("a.pdf", tmp_path / "data") == (tmp_path / "data" / "a.pdf").resolve()
+    (tmp_path / "data" / "scan.jpg").write_bytes(b"jpg")
+    assert ui.source_image("scan.jpg", tmp_path / "data") == (tmp_path / "data" / "scan.jpg").resolve()
+    assert ui.source_image("a.pdf", tmp_path / "data") is None and ui.source_pdf("scan.jpg", tmp_path / "data") is None
     for source in ("../secret.pdf", "notes.md", "missing.pdf"):
         assert ui.source_pdf(source, tmp_path / "data") is None
 

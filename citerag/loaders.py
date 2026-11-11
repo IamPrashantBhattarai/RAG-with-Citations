@@ -1,7 +1,7 @@
-"""PDF/TXT/MD files -> page records with source metadata. (Phase 1)
+"""PDF/TXT/MD/image files -> page records with source metadata. (Phase 1)
 
 Every loader returns a list of `Page` records: one per PDF page, or a single
-page 1 for text files. Text is cleaned here so later steps see plain prose:
+page 1 for text and image files. Text is cleaned here so later steps see plain prose:
 
 - all files: unify line endings and odd Unicode (BOM, no-break spaces,
   ligatures like "ﬁ", zero-width characters), strip trailing spaces, and
@@ -13,9 +13,10 @@ page 1 for text files. Text is cleaned here so later steps see plain prose:
   also gets: running headers/footers and bare page numbers removed,
   hyphenated line breaks rejoined ("informa-\\ntion" -> "information"),
   and paragraph breaks inferred, because pypdf rarely emits blank lines.
+- Scanned pages, photos and image files are read with OCR through Docling
+  (Phase 10, CITERAG_OCR). The pypdf fallback has no OCR.
 
-Pages with no extractable text (blank or scanned) are skipped with a warning;
-OCR is out of scope.
+Pages with no text, even after OCR (blank pages, or OCR off), are skipped with a warning.
 
 Try it:  python -m citerag.loaders data/
 """
@@ -41,7 +42,8 @@ log = logging.getLogger(__name__)
 logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
-SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf"}
+IMAGE_EXTENSIONS = layout.IMAGE_EXTENSIONS
+SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf"} | IMAGE_EXTENSIONS
 PDF_PARSERS = ("docling", "pypdf")
 
 EDGE_LINES = 2  # lines at the top and bottom of a page checked for headers/footers
@@ -73,7 +75,29 @@ def load_file(path: str | Path, source: str | None = None) -> list[Page]:
         return load_pdf(path, source)
     if ext in TEXT_EXTENSIONS:
         return load_text(path, source)
+    if ext in IMAGE_EXTENSIONS:
+        return load_image(path, source)
     raise LoaderError(f"{path.name}: unsupported file type {ext or '(none)'}")
+
+
+def load_image(path: str | Path, source: str | None = None) -> list[Page]:
+    """Read an image file (a scan, a photo of a page) with OCR, as page 1."""
+    path = Path(path)
+    source = source or path.name
+    if not layout.available():
+        raise LoaderError(f"{source}: reading images needs Docling (pip install docling)")
+    if config.OCR == "off":
+        raise LoaderError(f"{source}: reading images needs OCR, which is off (CITERAG_OCR=off)")
+    try:
+        texts = [clean_text(t) for t in layout.parse_file(path)]
+    except layout.LayoutError as e:
+        raise LoaderError(f"{source}: cannot read image ({e})") from e
+    except (OSError, ValueError) as e:
+        raise LoaderError(f"{source}: {e}") from e
+    pages = [Page(t, source, i) for i, t in enumerate(texts, start=1) if _has_text(t)]
+    if not pages:
+        log.warning("%s: no text found in the image", source)
+    return pages
 
 
 def load_text(path: str | Path, source: str | None = None) -> list[Page]:
@@ -106,6 +130,7 @@ def load_pdf(path: str | Path, source: str | None = None, parser: str | None = N
         if reader.is_encrypted and not reader.decrypt(""):
             raise LoaderError(f"{source}: PDF is password-protected")
         texts = _docling_pages(path, source) if parser == "docling" else None
+        ocr = texts is not None and config.OCR != "off"
         if texts is None:
             texts = clean_pdf_pages(_pypdf_pages(reader, source))
     except LoaderError:
@@ -115,8 +140,10 @@ def load_pdf(path: str | Path, source: str | None = None, parser: str | None = N
 
     pages = [Page(t, source, i) for i, t in enumerate(texts, start=1) if _has_text(t)]
     empty = [i for i, t in enumerate(texts, start=1) if not _has_text(t)]
-    if not pages:
-        log.warning("%s: no extractable text — probably scanned (OCR not supported)", source)
+    if not pages and ocr:
+        log.warning("%s: no text found, even with OCR", source)
+    elif not pages:
+        log.warning("%s: no extractable text — probably scanned; OCR needs Docling with CITERAG_OCR on", source)
     elif empty:
         log.warning("%s: skipped %d page(s) with no text: %s", source, len(empty), _ranges(empty))
     return pages
@@ -146,7 +173,7 @@ def _docling_pages(path: Path, source: str) -> list[str] | None:
             _warned_no_docling = True
         return None
     try:
-        return [clean_text(t) for t in layout.parse_pdf(path)]
+        return [clean_text(t) for t in layout.parse_file(path)]
     except layout.LayoutError as e:
         log.warning("%s: layout parsing failed (%s), read with pypdf instead", source, e)
         return None

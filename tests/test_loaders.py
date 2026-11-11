@@ -215,7 +215,7 @@ def test_corrupt_pdf_raises(tmp_path):
 
 
 def test_docling_pages_are_cleaned_and_numbered(tmp_path, monkeypatch):
-    monkeypatch.setattr(layout, "parse_pdf", lambda path: ["## Intro\n\nﬁrst  page text", "", "- Model: big; BLEU: 28.4"])
+    monkeypatch.setattr(layout, "parse_file", lambda path: ["## Intro\n\nﬁrst  page text", "", "- Model: big; BLEU: 28.4"])
     pages = load_pdf(make_pdf(tmp_path / "r.pdf", [body(1), [], body(3)]), parser="docling")
     assert [(p.page, p.text) for p in pages] == [(1, "## Intro\n\nfirst  page text"), (3, "- Model: big; BLEU: 28.4")]
 
@@ -227,7 +227,7 @@ def test_falls_back_to_pypdf_when_docling_fails_or_is_missing(tmp_path, monkeypa
     def broken(path):
         raise layout.LayoutError("bad page tree")
 
-    monkeypatch.setattr(layout, "parse_pdf", broken)
+    monkeypatch.setattr(layout, "parse_file", broken)
     with caplog.at_level(logging.WARNING):
         assert [p.text for p in load_pdf(pdf, parser="docling")] == expected
     assert "layout parsing failed (bad page tree), read with pypdf instead" in caplog.text
@@ -249,7 +249,7 @@ def test_password_check_comes_before_docling(tmp_path, monkeypatch):
     locked = tmp_path / "locked.pdf"
     with open(locked, "wb") as fh:
         writer.write(fh)
-    monkeypatch.setattr(layout, "parse_pdf", lambda path: pytest.fail("Docling should not be called"))
+    monkeypatch.setattr(layout, "parse_file", lambda path: pytest.fail("Docling should not be called"))
     with pytest.raises(LoaderError, match="password"):
         load_pdf(locked, parser="docling")
 
@@ -257,6 +257,42 @@ def test_password_check_comes_before_docling(tmp_path, monkeypatch):
 def test_unknown_pdf_parser_is_refused(tmp_path):
     with pytest.raises(ValueError, match="CITERAG_PDF_PARSER"):
         load_pdf(make_pdf(tmp_path / "r.pdf", [body(1)]), parser="pdfminer")
+
+
+# -- OCR (Phase 10) --------------------------------------------------------------
+
+
+def test_images_are_read_with_ocr_as_page_one(tmp_path, monkeypatch):
+    img = tmp_path / "receipt.JPG"
+    img.write_bytes(b"jpeg")
+    monkeypatch.setattr(layout, "parse_file", lambda path: ["Total due: 980"])
+    assert [(p.source, p.page, p.text) for p in load_file(img)] == [("receipt.JPG", 1, "Total due: 980")]
+    (tmp_path / "notes.png").write_bytes(b"png")
+    assert {p.source for p in load_dir(tmp_path)} == {"receipt.JPG", "notes.png"}  # images are found in folders
+
+
+def test_images_need_docling_and_ocr(tmp_path, monkeypatch):
+    img = tmp_path / "scan.png"
+    img.write_bytes(b"png")
+    monkeypatch.setattr(config, "OCR", "off")
+    with pytest.raises(LoaderError, match="needs OCR"):
+        load_file(img)
+    monkeypatch.setattr(layout, "available", lambda: False)
+    with pytest.raises(LoaderError, match="needs Docling"):
+        load_file(img)
+
+
+def test_scanned_pdf_warning_says_whether_ocr_ran(tmp_path, monkeypatch, caplog):
+    pdf = make_pdf(tmp_path / "scan.pdf", [[]])
+    monkeypatch.setattr(layout, "parse_file", lambda path: [""])
+    monkeypatch.setattr(config, "OCR", "rapidocr")
+    with caplog.at_level(logging.WARNING):
+        assert load_pdf(pdf, parser="docling") == []
+    assert "no text found, even with OCR" in caplog.text
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        load_pdf(pdf, parser="pypdf")
+    assert "OCR needs Docling" in caplog.text
 
 
 # -- folders and dispatch --------------------------------------------------------

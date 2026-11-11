@@ -23,7 +23,7 @@ question ─► search (meaning + keywords) ─► rerank ─► top 5 passages
 
 | Stage | What happens | Code |
 |---|---|---|
-| Load | PDF, TXT and Markdown files are read page by page. PDFs go through Docling's layout model: reading order across columns, headings, and tables written one row per line with each value next to its column name. Page headers, footers and text inside figures are dropped. Parsed files are cached, so only new or changed files are parsed again. If Docling can't read a file, pypdf does. Page numbers match what a PDF viewer shows. | `citerag/loaders.py`, `citerag/layout.py` |
+| Load | PDF, TXT, Markdown and image files are read page by page. Scanned pages, photos and images are read with OCR (RapidOCR); a page that is mostly a form is read row by row, so each value stays next to its label. PDFs go through Docling's layout model: reading order across columns, headings, and tables written one row per line with each value next to its column name. Page headers, footers and text inside figures are dropped. Parsed files are cached, so only new or changed files are parsed again. If Docling can't read a file, pypdf does. Page numbers match what a PDF viewer shows. | `citerag/loaders.py`, `citerag/layout.py` |
 | Chunk | Pages are split into passages of about 384 tokens, along sentence and section boundaries, with a small overlap so a fact isn't cut in half. | `citerag/chunker.py` |
 | Embed and store | Each passage is turned into a vector with `BAAI/bge-base-en-v1.5` and saved in a local ChromaDB index. Re-indexing only re-embeds files that changed. | `citerag/store.py` |
 | Search | Two searches find candidates. One matches meaning (vectors) and the other matches exact words, names and codes (BM25). Their results are merged, and a reranker model (`gte-reranker-modernbert-base`) reorders the top 10. If nothing is close enough to the question, no LLM is called. | `citerag/retriever.py` |
@@ -36,7 +36,7 @@ The models and settings were chosen, or later confirmed, by benchmarks on public
 ## Requirements
 
 - Python 3.12 (the version this was built and tested with)
-- About 2.4 GB of disk space for the local models. They download automatically the first time they are used: embeddings 419 MB, reranker 574 MB, NLI checker 364 MB, PDF layout 328 MB and table structure 683 MB (Docling). The optional formula model (`CITERAG_PDF_FORMULAS=latex`) adds 1.2 GB.
+- About 2.4 GB of disk space for the local models. They download automatically the first time they are used: embeddings 419 MB, reranker 574 MB, NLI checker 364 MB, PDF layout 328 MB and table structure 683 MB (Docling), OCR 31 MB (RapidOCR, installed with Docling). The optional formula model (`CITERAG_PDF_FORMULAS=latex`) adds 1.2 GB.
 - An API key for the LLM, either one of:
   - **Gemini** (free): get a key at https://aistudio.google.com/apikey. On the free tier, Google may use your prompts to improve its products, so don't use it with private documents. `gemini-3.6-flash` allows 20 requests a day; after that, the app switches to `gemini-3.5-flash-lite` on its own.
   - **Claude** (paid): an Anthropic API key. It gives exact quotes chosen by the model itself.
@@ -85,7 +85,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 It opens at http://localhost:8501. The first start takes a little longer while the models load.
 
-1. **Add documents.** Upload PDF, TXT or MD files in the sidebar, or put them in `data/` and click **Rescan data/ folder**.
+1. **Add documents.** Upload PDF, TXT, MD or image files (PNG, JPG, TIFF…; scans and photos are read with OCR) in the sidebar, or put them in `data/` and click **Rescan data/ folder**.
 2. **Ask a question** in the box at the bottom.
 3. **Read the answer.** Citations appear as small numbers. Below the answer:
    - **Sources**: one per citation. Open it to see the whole passage with the quote highlighted, and **Show PDF** to see the cited page.
@@ -134,6 +134,7 @@ All settings live in `citerag/config.py` and can be overridden in `.env`. The on
 | `CITERAG_STRICT` | `0` | `1` removes unsupported statements |
 | `CITERAG_PDF_PARSER` | `docling` | `pypdf` reads PDFs without the layout model (faster, but tables and columns come out as run-on text) |
 | `CITERAG_PDF_FORMULAS` | `text` | `latex` writes formulas as LaTeX where the formula model agrees with the PDF text (1.2 GB model, about 20 s per formula) |
+| `CITERAG_OCR` | `rapidocr` | OCR for pages without a text layer and for images: `ocrmac` uses Apple Vision on a Mac (`pip install ocrmac`; fewer glued words on printed scans), `off` turns OCR off |
 | `CITERAG_CHUNK_SIZE` | `384` | Tokens per chunk (changing it re-embeds everything on the next index) |
 | `CITERAG_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | Changing it needs `python -m citerag.store data/ --reset` |
 
@@ -201,7 +202,8 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 
 ## Limitations
 
-- **No OCR:** scanned PDFs without a text layer can't be read.
+- **OCR** was tested on one handwritten form (17/17 values read) and on scanned copies of the papers (about 96% of words exact). RapidOCR sometimes drops spaces between words on printed scans, and only English was tested.
+- **Forms:** the citation checker can flag a correct value whose label or column heading is on another row of the form.
 - **Tables:** each row is now one line naming its columns, but a question can still use different words from the table ("parameters" vs the header "params ×106"), and that row is still missed.
 - **Formulas** keep the PDF's own text ("softmax( QKT √dk )V"). Docling's LaTeX model misread 3 of 5 formulas in the Attention paper, so it is off by default.
 - **Questions spanning two documents** can end up with all 5 passages from one of them.

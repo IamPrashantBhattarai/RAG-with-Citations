@@ -4,6 +4,25 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Added — Phase 10: OCR for scanned pages, photos and images ([10-ocr.md](10-ocr.md))
+- PDF pages without a text layer (fewer than 20 characters) are read with OCR through Docling. Pages with a text layer are never OCR'd: OCR'ing figures on them added a watermark's text and a stray "0" that split a paragraph, and made parsing 5× slower. The four born-digital PDFs are word-for-word unchanged.
+- Image files (`.png .jpg .jpeg .tif .tiff .bmp .webp`) load as one-page documents. In the app, the uploader accepts them, and a cited image has a **Show image** toggle.
+- **Forms:** a page at least half covered by Docling's "form" region is written row by row from its text cells: `6a Total plan assets   6a   50000   60000`. Phrases join with one space, fields with three, and ticked boxes are written `[x]`. Its header is kept ("Form Number: CA530082"). On 58 pages of papers no form was detected.
+- `CITERAG_OCR`: `rapidocr` (default), `ocrmac` (Apple Vision, macOS), `off`. The parse cache key includes the engine, and `PARSER_VERSION` is 2.
+- `layout.parse_pdf` → `layout.parse_file` (PDFs and images); `loaders.load_image`. The "no text" warnings say whether OCR ran.
+- **Chosen by benchmark** on the user's handwritten form (an IRS 5500-EZ photo). Handwritten values read exactly: RapidOCR 17/17 with rows (14/17 in Docling's order), Apple Vision 15/17, EasyOCR 4/17. On scanned copies of the papers, RapidOCR got 0.966 word similarity with 44 glued words in 16 pages; Apple Vision 0.980 with 4, but it's Mac only.
+- **Eval:** `handwriting.pdf` was added with 12 questions and an unanswerable one (91 questions in total). Retrieval: all 12 in the top 5; reranker R@5 0.98. Answers (`gemini-3.5-flash-lite`): 12/12 correct, and both the blank-field question and the off-topic one declined. Off-topic off-08 (an exchange-rate question) now scores 0.452 against the form, just over the 0.45 gate. Kept, because it costs one call and the answer declines.
+- Known false alarms: the checker flagged 2 of the 12 correct form answers (a value whose label or column heading is on another row).
+- Tests: +5 `test_layout.py` (rows, form pages, the real form, real OCR of an image and a scanned PDF, a mixed PDF where only the scanned page is OCR'd), +3 `test_loaders.py`, `test_ui.py` extended. 219 passing.
+
+### Fixed — while building Phase 10
+- Docling numbers `result.pages` from 1; the form text was first sent to a non-existent page 2. Caught by the real-form test.
+- Checkbox placement, and word spacing inside handwritten rows.
+
+### System
+- No new packages. RapidOCR came with Docling (`rapidocr 3.10.0`, models 31 MB). `onnxruntime` (1.31.0) was already installed through ChromaDB, and is now listed in `requirements.txt` because OCR needs it.
+- Benchmark only, in a throwaway environment: `easyocr 1.7.2` and `ocrmac 1.0.1`, plus `onnxruntime` (with `--exclude-newer 2026-11-04`). Not added to the project.
+
 ### Added — Phase 9: Layout-aware PDF parsing ([09-layout-parsing.md](09-layout-parsing.md))
 - `citerag/layout.py` (new): PDFs go through Docling's layout model (reading order, headings, table structure; OCR off). Each page becomes Markdown with Docling's serializer, with two parts replaced:
   - **Tables:** one `- header: value; …` line per row, caption first. Stacked headers are joined, and merged cells are written once.

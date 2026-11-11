@@ -26,7 +26,7 @@ import re
 from pathlib import Path
 
 from citerag.generator import Answer
-from citerag.loaders import SUPPORTED_EXTENSIONS
+from citerag.loaders import IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS
 from citerag.store import IndexReport
 from citerag.validator import Validation, display_offsets
 
@@ -199,7 +199,7 @@ def save_upload(name: str, data: bytes, folder: Path) -> Path:
     if not filename or filename.startswith("."):
         raise ValueError(f"invalid file name: {name!r}")
     if Path(filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
-        raise ValueError(f"{filename}: only PDF, TXT and MD files are supported")
+        raise ValueError(f"{filename}: only PDF, TXT, MD and image files are supported")
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / filename
     path.write_bytes(data)
@@ -219,9 +219,18 @@ def report_text(report: IndexReport) -> str:
 
 def source_pdf(source: str, folder: Path) -> Path | None:
     """The cited PDF in `folder`, if it is there (and really inside it)."""
+    return _source_file(source, folder, {".pdf"})
+
+
+def source_image(source: str, folder: Path) -> Path | None:
+    """The cited image in `folder` (a scan or photo read with OCR), if it is there."""
+    return _source_file(source, folder, IMAGE_EXTENSIONS)
+
+
+def _source_file(source: str, folder: Path, suffixes: set[str]) -> Path | None:
     root = folder.resolve()
     path = (root / source).resolve()
-    if path.suffix.lower() != ".pdf" or not path.is_relative_to(root) or not path.is_file():
+    if path.suffix.lower() not in suffixes or not path.is_relative_to(root) or not path.is_file():
         return None
     return path
 

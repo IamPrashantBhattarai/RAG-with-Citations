@@ -3,7 +3,8 @@
   "documents": [
     "bsccsit-syllabus-webtechnology.pdf",
     "NIPS-2017-attention-is-all-you-need-Paper.pdf",
-    "Zhai_Scaling_Vision_Transformers_CVPR_2022_paper.pdf"
+    "Zhai_Scaling_Vision_Transformers_CVPR_2022_paper.pdf",
+    "handwriting.pdf"
   ],
   "questions": [
     {"id": "syl-01", "kind": "single", "question": "What are the pass marks for the Web Technology exam?",
@@ -200,6 +201,19 @@
                     "Name: L/16; Width: 1024; Depth: 24; MLP: 4096; Heads: 16; Mio. Param: 303"]}],
      "facts": [["6", "six"], ["24"]]},
 
+    {"id": "form-01", "kind": "single", "question": "What is the employer's EIN on the Form 5500-EZ?", "evidence": [{"source": "handwriting.pdf", "quote": "Trade name of business (if different from name of employer) 735268329"}], "facts": [["735268329"]], "forbidden": ["532678", "5732900"]},
+    {"id": "form-02", "kind": "single", "question": "What is the three-digit plan number of the retirement plan?", "evidence": [{"source": "handwriting.pdf", "quote": "1b Three-digit 586"}], "facts": [["586"]]},
+    {"id": "form-03", "kind": "single", "question": "When did the plan first become effective?", "evidence": [{"source": "handwriting.pdf", "quote": "02/05/2022"}], "facts": [["02/05/2022", "February 5, 2022", "Feb 5, 2022", "February 05, 2022"]]},
+    {"id": "form-04", "kind": "single", "question": "Which employer filed the Form 5500-EZ?", "evidence": [{"source": "handwriting.pdf", "quote": "Acme Corp software"}], "facts": [["Acme Corp"]]},
+    {"id": "form-05", "kind": "single", "question": "What is the employer's telephone number?", "evidence": [{"source": "handwriting.pdf", "quote": "In care of name 011536259"}], "facts": [["011536259"]]},
+    {"id": "form-06", "kind": "single", "question": "How many participants did the plan have at the beginning of the plan year?", "evidence": [{"source": "handwriting.pdf", "quote": "5a(1) Total number of participants at the beginning of the plan year 5a(1) 10"}], "facts": [["10", "ten"]]},
+    {"id": "form-07", "kind": "single", "question": "What were the total plan assets at the end of the year?", "evidence": [{"source": "handwriting.pdf", "quote": "6a Total plan assets 6a 50000 60000"}], "facts": [["60000", "60,000"]]},
+    {"id": "form-08", "kind": "single", "question": "What were the plan's total liabilities at the beginning of the year?", "evidence": [{"source": "handwriting.pdf", "quote": "b Total plan liabilities. 6b 4000 $5000"}], "facts": [["4000", "4,000"]]},
+    {"id": "form-09", "kind": "single", "question": "What form number is handwritten at the top of the form?", "evidence": [{"source": "handwriting.pdf", "quote": "Form Number: CA530082"}], "facts": [["CA530082"]]},
+    {"id": "form-10", "kind": "single", "question": "Is this the first return filed for the plan?", "evidence": [{"source": "handwriting.pdf", "quote": "[x] (1)the first return filed for the plan"}], "facts": [["yes"], ["first return"]]},
+    {"id": "form-11", "kind": "single", "question": "What is the plan administrator's EIN?", "evidence": [{"source": "handwriting.pdf", "quote": "532678"}], "facts": [["532678"]], "forbidden": ["735268329"]},
+    {"id": "form-12", "kind": "single", "question": "Which plan year does the Form 5500-EZ cover?", "evidence": [{"source": "handwriting.pdf", "quote": "01/02/2022and ending 01/02/2023"}], "facts": [["01/02/2022", "January 2, 2022"], ["01/02/2023", "January 2, 2023"]]},
+
     {"id": "un-01", "kind": "unanswerable", "question": "Who is the instructor for Web Technology I?",
      "evidence": [], "facts": []},
     {"id": "un-02", "kind": "unanswerable", "question": "Which university offers the Web Technology I course?",
@@ -216,6 +230,8 @@
      "evidence": [], "facts": []},
     {"id": "un-08", "kind": "unanswerable", "question": "What is the difference between BERT and GPT?",
      "evidence": [], "facts": []},
+    {"id": "un-09", "kind": "unanswerable", "question": "What is the plan administrator's telephone number on the Form 5500-EZ?",
+     "evidence": [], "facts": [], "forbidden": ["011536259"]},
 
     {"id": "off-01", "kind": "off_topic", "question": "How do I bake sourdough bread?", "evidence": [], "facts": []},
     {"id": "off-02", "kind": "off_topic", "question": "What is the capital of Australia?", "evidence": [], "facts": []},

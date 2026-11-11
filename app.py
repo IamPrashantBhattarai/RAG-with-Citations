@@ -16,7 +16,7 @@ import streamlit as st
 
 from citerag import config, ui
 from citerag.generator import Answer, GenerationError, Generator, make_backend, page_label
-from citerag.loaders import LoaderError, load_dir, load_file
+from citerag.loaders import SUPPORTED_EXTENSIONS, LoaderError, load_dir, load_file
 from citerag.retriever import Retriever
 from citerag.store import EmbeddingMismatchError, Store
 from citerag.validator import Validator
@@ -77,7 +77,8 @@ def sidebar(store: Store) -> dict:
         if not docs:
             st.caption("No documents indexed yet.")
 
-        files = st.file_uploader("Add documents", type=["pdf", "txt", "md"], accept_multiple_files=True,
+        files = st.file_uploader("Add documents", type=sorted(e.lstrip(".") for e in SUPPORTED_EXTENSIONS),
+                                 accept_multiple_files=True,
                                  key=f"upload-{st.session_state.upload_key}")
         if files and st.button("Add to index", type="primary", width="stretch"):
             add_files(store, files)
@@ -121,7 +122,7 @@ def add_files(store: Store, files) -> None:
                 errors.append(str(e))
                 continue
             if not loaded:
-                errors.append(f"{path.name}: no text found (a scanned PDF? OCR isn't supported)")
+                errors.append(f"{path.name}: no text found, even with OCR")
             pages.extend(loaded)
         if pages:
             flash("success", "Indexed. " + ui.report_text(store.index(pages)))
@@ -184,6 +185,9 @@ def show_answer(answer: Answer, turn: int) -> None:
             pdf = ui.source_pdf(c.source, config.DATA_DIR)
             if pdf is not None and st.toggle(f"Show PDF {c.pages}", key=f"pdf-{turn}-{c.number}"):
                 st.pdf(cited_pages(str(pdf), pdf.stat().st_mtime, c.page_start, c.page_end), height=600)
+            image = ui.source_image(c.source, config.DATA_DIR)
+            if image is not None and st.toggle("Show image", key=f"img-{turn}-{c.number}"):
+                st.image(str(image))
 
     if answer.validation is not None and (lines := ui.check_lines(answer.validation)):
         with st.expander("Checks"):
