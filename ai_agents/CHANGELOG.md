@@ -4,6 +4,12 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Changed — The checker reads tables ([06-citation-checks.md](06-citation-checks.md#update-2026-11-11-tables-and-forms))
+- `citerag/validator.py`: when every number in a statement comes from table rows, `table_verdict` checks that each number sits in a column and row the statement names, with no NLI call. A number from another column or row is flagged precisely: "6,000 is the Daily allowance (NPR) for Grade A (Director) in the cited table". Unclear cases go to NLI as before. Form rows also get the two lines above them as a premise (`line_windows`).
+- `eval/checks.py` (new): a re-runnable checker benchmark on saved answers. True statements, plus each number swapped for another from the same table row or line.
+- Measured on 101 true and 73 altered statements: false alarms 10 → 8, altered caught 66 → 69, balanced accuracy 0.903 → 0.933. Fixed docx-06, docx-05, form-08 and the BLEU, ImageNet and hotel-limit swaps. Tried and dropped: NLI on focused cells (with or without the caption; the caption makes NLI accept any number), and "field above" form premises (they fixed the form EIN but let a beginning/end swap pass).
+- Tests: +4 `test_validator.py`. 228 passing.
+
 ### Added — Phase 11 (part 1): Word files ([11-more-formats.md](11-more-formats.md#word-docx))
 - `.docx` files are read with Docling's Word reader into one Markdown text: headings become sections, lists are kept, tables become rows (merged headers joined), and equations stay as exact LaTeX. The header and footer go first, once.
 - Files without pages (Word, `.txt`, `.md`) are cited by file name and section, no longer "p. 1". `generator.location()`, `pages_label()` and `has_pages()` decide this for the app, both LLM prompts, the checker and the command line.

@@ -127,11 +127,44 @@ On 124 real answers, these checks warned on 28% of statements that were true. Ph
 
 Result: true statements warned 48/170 → 13/170, and altered statements caught 145/148 → 138/148. The threshold stays 0.5.
 
+## Update 2026-11-11: tables and forms
+
+**Problem.** After Phase 9 wrote tables one row per line, the checker still flagged correct table answers: docx-06, "The hotel limit per night in Kathmandu for a Director (Grade A) is NPR 18,000", was flagged as contradicted. The NLI model reads a whole row (`- Grade: A (Director); Daily allowance (NPR): 6,000; Hotel limit per night (NPR) Kathmandu: 18,000; Hotel limit per night (NPR) Other cities: 12,000`) and can't tell its columns apart. The same blindness let **wrong** numbers through: 27.3 (the English-to-German BLEU) passed as the English-to-French score, and 6,000 (the daily allowance) passed as the hotel limit.
+
+**Benchmark: `eval/checks.py`** (new, re-runnable; the Phase 8 alteration set was ad hoc and not saved). It uses saved answer runs, no LLM. True statements are every checked statement in correct answers: 101, from `docling-lite`, `ocr-lite` and `docx-lite`. Altered statements replace each standalone number a cited passage contains (not numbers inside names or dates such as "ViT-G/14" or "01/02/2022") with **another number from the same table row or line** (60; the hard case: the wrong number is in the passage under another label), or with a near number when the line has none (13).
+
+**What was tried** (false alarms / altered caught / balanced accuracy):
+
+| Checker | False alarms | Caught | Balanced acc. |
+|---|---|---|---|
+| Before | 10/101 | 66/73 | 0.903 |
+| NLI on just the row label + the cells holding the numbers | 10/101 | 68/73 | 0.916 |
+| …plus the table's heading and caption | 9/101 | 66/73 | 0.908 |
+| **Read the table (below) + form line windows** | **8/101** | **69/73** | **0.933** |
+| …plus "field straight above" premises for forms | 7/101 | 68/73 | 0.931 |
+
+Probing the NLI model showed why the second and third rows can't work. On the bare cell, the hotel-limit swap scores 0.38 (correctly rejected), but the correct "daily travel allowance … Nepalese rupees" scores 0.01, because "NPR" was the only clue. With the caption added, the correct claim scores 0.99, but the swap scores 0.91 too: words like "hotel limits" in the context make any number look right. An absolute NLI score can't do both.
+
+**Decision: read the table.** When every number in a statement sits in table rows (and nowhere in the prose), `table_verdict` checks that each number is in a column and a row the statement names. A column or row is "named" by the words that set it apart from the other columns of its row, or the other rows of its table ("Kathmandu" vs "Other cities", "Director" vs "Manager"). A header word may be a prefix of the statement's word ("FR" ~ "French", "params" ~ "parameters"). If the statement names the number's own column and row, and no other, it's supported, with no NLI call. If it names another column or row and not the number's own, the warning says exactly what went wrong: **"6,000 is the Daily allowance (NPR) for Grade A (Director) in the cited table"**. Anything ambiguous goes to NLI as before: no telling words (the syllabus's grouped "Undergraduate Programs Marks" columns), or both columns named ("ImageNet-v2" names both "ImageNet" and "INet V2"). **Form rows** (fields separated by three spaces, Phase 10) also get the line plus the two lines above as an extra premise, where their labels and column headings sit. That fixed form-08.
+
+The last row of the table (premises built from the field straight above each value) fixed the form EIN false alarm. But it let "end of year … $50000" (the beginning-of-year figure) pass, so it was dropped: missing a wrong number is worse than one extra false alarm.
+
+**Remaining false alarms (8):**
+- 2 "not in the documents" replies the model cited anyway (un-09, un-10)
+- 2 prose (vit-08, vit-14)
+- the syllabus's grouped evaluation table (syl-15 ×2)
+- a quote the locator took from the wrong line (syl-03)
+- the form EIN, whose label is two rows above (form-01)
+
+**Missed (4):** the ImageNet-v2 swap (both columns named), the form's beginning/end swap (form-08; the window holds both values), and two prose cases.
+
+Tests: +4 in `test_validator.py`: reading a table (right cell, wrong column, wrong row, the same number in two rows), leaving unclear claims to NLI, no NLI call when the table decides, and the form window.
+
 ## Known limitations
 
 - **PDF extraction artifacts** ("a ttend", "e valuated", "HT ML5") lower NLI scores and can cause false warnings. Fixing them belongs in the Phase 1 loader (re-joining split words).
 - **The checks read the text as extracted, not the page as laid out.** In the Phase 7 live test, a Gemini fallback model answered "the pass marks *for the external practical evaluation* are 45". In the PDF, 45 belongs to the end-semester exam grid, but the extracted text puts that grid right after the practical-exam paragraph. The check passed it, because the passage really does read that way.
-- **Tables are the weakest case.** Even the chosen model warned on "worth a total of 20 marks", taken from the table row `Total Internal 100% 20`.
+- **Tables are the weakest case.** Even the chosen model warned on "worth a total of 20 marks", taken from the table row `Total Internal 100% 20`. *(2026-11-11: table claims are now read off the table, see the update above; tables whose columns share all their words, like the syllabus's grouped evaluation table, still fall back to NLI.)*
 - **A wrong quote can still pass.** When the full passage supports a statement but the quote doesn't, the statement passes. That's right for the citation but leaves an imprecise highlight. Example: "Internal Exams: 50%" got a quote from the wrong part of an interleaved table.
 - Number words in the *statement* aren't checked lexically ("two hours" relies on NLI), because words like "one" are often not numbers.
 - About 0.6 s per answer on Apple MPS for a typical 4–8 statement answer, plus about 4 s to load the model once.

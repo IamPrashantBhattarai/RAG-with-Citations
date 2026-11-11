@@ -286,3 +286,55 @@ def test_strict_generator_streams_only_the_checked_answer():
 def test_validation_can_be_turned_off():
     g = Generator(FakeRetriever(), FakeBackend("The pass marks are 45 [1]."), validate=False)
     assert g.answer("q").validation is None
+
+
+# -- tables and forms (Phase 11) ---------------------------------------------------
+
+from citerag.validator import line_windows, table_verdict  # noqa: E402
+
+POLICY = Hit("t1", "## 3. Travel allowances\n\nAll amounts are in Nepalese rupees (NPR).\n\n"
+             "- Grade: A (Director); Daily allowance (NPR): 6,000; Hotel limit per night (NPR) Kathmandu: 18,000; "
+             "Hotel limit per night (NPR) Other cities: 12,000\n"
+             "- Grade: B (Manager); Daily allowance (NPR): 4,500; Hotel limit per night (NPR) Kathmandu: 12,000; "
+             "Hotel limit per night (NPR) Other cities: 9,000", "policy.docx", 1, 1, "3. Travel allowances", 0, 300, 0.8)
+
+
+def test_table_claims_are_read_off_the_table():
+    ok = table_verdict("The hotel limit per night in Kathmandu for a Director is NPR 18,000.", [POLICY])
+    assert ok == []
+    # A number from another column of the row: the claim names "Kathmandu", the number is the daily allowance.
+    assert table_verdict("The hotel limit in Kathmandu for a Director is NPR 6,000.", [POLICY]) == [
+        "6,000 is the Daily allowance (NPR) for Grade A (Director) in the cited table"]
+    # A number from another row.
+    assert table_verdict("The daily allowance for a Director is NPR 4,500.", [POLICY]) == [
+        "4,500 is the Daily allowance (NPR) for Grade B (Manager) in the cited table"]
+    # The same number in two rows: fine when the row the claim names holds it.
+    assert table_verdict("A manager's hotel limit in Kathmandu is NPR 12,000.", [POLICY]) == []
+
+
+def test_table_check_leaves_unclear_claims_to_nli():
+    assert table_verdict("Allowances are paid in NPR.", [POLICY]) is None  # no number
+    assert table_verdict("The Director gets NPR 18,000.", [POLICY]) is None  # names no column
+    prose = Hit("p1", "Directors get 18,000 for hotels.\n- Grade: A; Hotel: 18,000; Daily: 6,000", "x.docx", 1, 1, None, 0, 60, 0.8)
+    assert table_verdict("A Director's hotel limit is 18,000.", [prose]) is None  # also in the prose
+    vit = Hit("v1", "- Benchmark: Ours; ImageNet: 90.45±0.03; INet V2: 83.33±0.03", "vit.pdf", 6, 6, None, 0, 60, 0.8)
+    assert table_verdict("ViT-G/14 gets 83.33% on ImageNet-v2.", [vit]) is None  # names both columns
+    assert table_verdict("ViT-G/14 gets 83.33% on INet V2.", [vit]) == []  # "14" in a name isn't a value
+
+
+def test_validator_uses_the_table_check_without_nli():
+    nli = FakeNLI()
+    a = answer("The hotel limit per night in Kathmandu for a Director is NPR 6,000 [1].", [POLICY],
+               question="What is the Kathmandu hotel limit for a Director?")
+    a.validation = Validator(nli, threshold=0.5).validate(a)
+    [c] = a.validation.checks
+    assert c.status == "warn" and c.issues == ["6,000 is the Daily allowance (NPR) for Grade A (Director) in the cited table"]
+    assert nli.calls == []  # decided from the table
+
+
+def test_form_rows_get_the_lines_above_as_a_premise():
+    form = Hit("f1", "Part III\n(1) Beginning of year   (2) End of year\n6a Total plan assets   6a   50000   60000\n"
+               "Notes about the plan", "form.pdf", 1, 1, None, 0, 100, 0.8)
+    assert line_windows("Assets were $60,000 at the end of the year.", [form]) == [
+        "Part III\n(1) Beginning of year   (2) End of year\n6a Total plan assets   6a   50000   60000"]
+    assert line_windows("Assets were 70000.", [form]) == []  # not on a form row

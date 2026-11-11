@@ -17,6 +17,12 @@ sentence or list item is checked:
    Free and on-device.
 4. Invalid markers: [n] markers pointing at excerpts that don't exist
    (Gemini only; Phase 5 drops them from the text) are reported.
+5. Tables (2026-11-11): when every number in a statement comes from table
+   rows, the table is read instead of asking NLI, which can't tell one
+   column of a row from another. Each number must sit in a column and a row
+   the statement names ("6,000 is the Daily allowance (NPR) for Grade A
+   (Director) in the cited table" otherwise). Form rows also get the lines
+   above them as a premise, where their labels and column headings sit.
 
 Each statement gets "ok" (✅) or "warn" (⚠️) with reasons, and the answer a
 summary line. Strict mode removes the warned statements and the citations
@@ -240,6 +246,13 @@ class Validator:
                     check.issues.append(f"{_cited(sources)} {'doesn' if len(sources) == 1 else 'don'}'t mention it")
                 check.status = "warn" if check.issues else "ok"
                 continue
+            if (verdict := table_verdict(claim, sources)) is not None:
+                # Every number is a table cell: read the table instead of asking NLI, which can't
+                # tell one column of a row from another (any value in the row "fits" the claim).
+                check.issues.extend(verdict)
+                check.status = "warn" if check.issues else "ok"
+                continue
+            premises += line_windows(claim, sources)
             pending.append((check, list(dict.fromkeys(premises)), sources))
 
         # The question goes in with each passage: it names what the passage is about, which
@@ -451,6 +464,122 @@ def missing_terms(text: str, sources: list[Hit]) -> list[str]:
             if name not in missing:
                 missing.append(name)
     return missing
+
+
+_TABLE_ROW_RE = re.compile(r"^- (?=.*: )(?=.*; ).+$")  # "- Grade: A; Daily allowance (NPR): 6,000; …"
+
+
+def _line_numbers(line: str) -> set[str]:
+    return {_normalize_number(n) for n in _NUMBER_RE.findall(line)}
+
+
+# A number on its own, not part of a name or a date ("ViT-G/14", "ImageNet-v2", "01/02/2022", "±0.03").
+_STANDALONE_RE = re.compile(r"(?<![\w/.^±-])\d+(?:[.,]\d+)*(?![\w/^-]|\.\d)")
+
+
+def _numbers_in(text: str) -> set[str]:
+    return {_normalize_number(n) for n in _STANDALONE_RE.findall(text)}
+
+
+def table_verdict(claim: str, sources: list[Hit]) -> list[str] | None:
+    """Check a claim whose numbers all come from table rows by reading the table.
+
+    Tables are written one row per line ("- Grade: A (Director); Daily
+    allowance (NPR): 6,000; Hotel limit per night (NPR) Kathmandu: 18,000",
+    Phase 9). Each number in the claim must sit in a column and a row the claim
+    names. A column or row is named by the words that tell it apart from the
+    other columns of its row or the other rows of its table ("Kathmandu" vs
+    "Other cities", "Director" vs "Manager"); a header word may be a prefix
+    of the claim's word ("FR" ~ "French", "params" ~ "parameters").
+
+    Returns [] when every number is in a column and row the claim names
+    (supported), a reason per misplaced number when the claim names another
+    column or row instead ("6,000 is the Daily allowance (NPR) for Grade: A
+    (Director) in the cited table"), or None to leave the claim to NLI: a
+    number also in the prose, or a table whose columns or rows can't be
+    told apart by words.
+    """
+    numbers = _numbers_in(claim)
+    if not numbers:
+        return None
+    words = set(tokenize(claim))
+
+    def named(tokens: set[str]) -> bool:
+        return any(t in words or (len(t) >= 2 and any(w.startswith(t) for w in words)) for t in tokens)
+
+    def distinct(own: str, others: list[str]) -> set[str]:
+        rest = {t for o in others for t in tokenize(o)}
+        return {t for t in tokenize(own) if t not in rest and not t.isdigit()}
+
+    found: dict[str, list[tuple[list, int, int]]] = {n: [] for n in numbers}  # number -> (block, row, cell)
+    for h in sources:
+        block: list[list[tuple[str, str]]] = []
+        for line in h.text.split("\n") + [""]:
+            line = line.strip()
+            if _TABLE_ROW_RE.match(line):
+                cells = [c.rpartition(": ") if ": " in c else ("", "", c) for c in line[2:].split("; ")]
+                block.append([(head, value) for head, _, value in cells])
+                continue
+            if numbers & _numbers_in(line):
+                return None  # also in the prose: not a table claim
+            for r, row in enumerate(block):
+                for c, (_, value) in enumerate(row):
+                    for n in numbers & _numbers_in(value):
+                        found[n].append((block, r, c))
+            block = []
+    if not all(found.values()):
+        return None
+
+    reasons = []
+    for n, places in found.items():
+        verdicts = []
+        for block, r, c in places:
+            row = block[r]
+            label = " ".join(filter(None, row[0]))  # the first cell names the row
+            numeric = [i for i, (_, v) in enumerate(row) if _numbers_in(v) and i != c]
+            col_words = distinct(row[c][0], [row[i][0] for i in numeric])
+            other_cols = [distinct(row[i][0], [row[j][0] for j in numeric + [c] if j != i]) for i in numeric]
+            labels = [" ".join(filter(None, other[0])) for other in block]
+            row_words = distinct(label, [l for i, l in enumerate(labels) if i != r]) if len(block) > 1 else None
+            other_rows = [distinct(l, [x for j, x in enumerate(labels) if j != i]) for i, l in enumerate(labels) if i != r]
+            # Named: the claim uses the number's own column (row) and no other; wrong: another and not its own.
+            own_col, any_col = bool(col_words) and named(col_words), any(o and named(o) for o in other_cols)
+            col_ok, col_wrong = own_col and not any_col, any_col and not own_col
+            if row_words is None or c == 0:  # one row, or the number is the row's own label
+                row_ok, row_wrong = True, False
+            else:
+                own_row, any_row = bool(row_words) and named(row_words), any(o and named(o) for o in other_rows)
+                row_ok, row_wrong = own_row and not any_row, any_row and not own_row
+            if col_ok and row_ok:
+                verdicts.append("ok")
+            elif col_wrong or row_wrong:
+                head, value = row[c][0] or "value", row[c][1]
+                verdicts.append(f"{value} is the {head} for {label} in the cited table")
+            else:
+                verdicts.append(None)
+        if "ok" in verdicts:
+            continue
+        if None in verdicts:
+            return None  # can't tell: leave the claim to NLI
+        reasons.append(verdicts[0])
+    return reasons
+
+
+def line_windows(claim: str, sources: list[Hit], above: int = 2) -> list[str]:
+    """Each form-like line holding a number from the claim, with the lines above it.
+
+    On a form (Phase 10, read row by row) a value's label or column heading is
+    often a row or two above it ("2b Employer Identification Number" ...
+    "735268329"). Form rows separate fields by three spaces.
+    """
+    numbers = {_normalize_number(n) for n in _NUMBER_RE.findall(claim)}
+    out = []
+    for h in sources:
+        lines = [line for line in h.text.split("\n") if line.strip()]
+        for i, line in enumerate(lines):
+            if "   " in line and numbers & _line_numbers(line):
+                out.append("\n".join(lines[max(0, i - above):i + 1]))
+    return out
 
 
 def _names(text: str) -> list[str]:

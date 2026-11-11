@@ -203,7 +203,7 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 ## Limitations
 
 - **OCR** was tested on one handwritten form (17/17 values read) and on scanned copies of the papers (about 96% of words exact). RapidOCR sometimes drops spaces between words on printed scans, and only English was tested.
-- **Forms:** the citation checker can flag a correct value whose label or column heading is on another row of the form.
+- **Forms:** the citation checker can still flag a correct form value whose label is on another row (the EIN on the test form). Table values are read off the table, so a number from the wrong column is flagged with the column it actually belongs to.
 - **Tables:** each row is now one line naming its columns, but a question can still use different words from the table ("parameters" vs the header "params ×106"), and that row is still missed.
 - **Formulas** keep the PDF's own text ("softmax( QKT √dk )V"). Docling's LaTeX model misread 3 of 5 formulas in the Attention paper, so it is off by default.
 - **Questions spanning two documents** can end up with all 5 passages from one of them.
