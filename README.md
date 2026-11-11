@@ -133,7 +133,8 @@ Publishing the app removes the test-user list. Google doesn't review apps that a
 
 | You see | Fix |
 |---|---|
-| The normal app, with no sign-in button | A `PASTE…` placeholder is still in `secrets.toml`, the file isn't valid TOML (check for a missing quote), or the app wasn't restarted |
+| The normal app, with no sign-in button | Both `PASTE…` placeholders are still in `secrets.toml`, or the app wasn't restarted |
+| "The sign-in settings have a problem, so the app won't open" | `secrets.toml` isn't valid TOML (often a missing quote; the message gives the line), or only some settings are filled in. Fix it and restart. The app won't open without sign-in while the settings are broken. |
 | `Error 400: redirect_uri_mismatch` | The URI in the Google client must equal `redirect_uri` in `secrets.toml`, and the app must be on port 8501. New client settings can take a few minutes to apply. |
 | `Error 403: access_denied` | Add the account under *Audience → Test users* |
 | `Error 403: org_internal` | The audience is *Internal*: use a Workspace account, or switch to *External* |

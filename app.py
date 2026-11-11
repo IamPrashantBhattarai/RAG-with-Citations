@@ -97,7 +97,14 @@ def flash(kind: str, message: str) -> None:
 
 def current_user() -> User:
     """Who is using the app; stops the page with a sign-in or "no access" screen if nobody may."""
-    if not auth.configured():
+    try:
+        signing_in = auth.configured()
+    except auth.AuthConfigError as e:  # broken, not absent: stop rather than open without sign-in
+        st.title("CiteRAG")
+        st.error(f"The sign-in settings have a problem, so the app won't open: {e}. "
+                 "Fix `.streamlit/secrets.toml`, then restart the app.")
+        st.stop()
+    if not signing_in:
         return LOCAL_USER
     email = auth.identity()
     if email is None:

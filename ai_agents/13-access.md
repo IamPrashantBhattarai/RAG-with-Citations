@@ -1,6 +1,6 @@
 # Phase 13 — Sign-in and permissions
 
-**Status:** ✅ Done (2026-11-11). The user's Google OAuth client and test users were set up the same day (Step 3) · Code: `citerag/auth.py` (new), `citerag/access.py` (new), `citerag/chats.py`, `citerag/config.py`, `app.py`; `access.example.toml`, `eval/permissions.py` (new) · Tests: `tests/test_access.py` (14), +6 `tests/test_ui.py`; 275 passing in total
+**Status:** ✅ Done (2026-11-11). The user's Google OAuth client and test users were set up the same day (Step 3) · Code: `citerag/auth.py` (new), `citerag/access.py` (new), `citerag/chats.py`, `citerag/config.py`, `app.py`; `access.example.toml`, `eval/permissions.py` (new) · Tests: `tests/test_access.py` (14), `tests/test_auth.py` (9), +7 `tests/test_ui.py`; 285 passing in total
 
 **Outcome in one line:** with Google sign-in set up, only the people listed in `access.toml` get in, each searches only the documents in their groups' folders (enforced at search time, before anything reaches the LLM), only admins manage documents, and chats are per user. On the real search stack, 504 searches by restricted users returned 0 passages they may not read.
 
@@ -123,13 +123,41 @@ The existing app tests now pin sign-in off, so they keep testing the local mode 
 
 - Chats saved in the same second sorted at random (timestamps had second resolution). Now microseconds. The test caught it once in three runs.
 
+### Broken sign-in settings now fail closed (2026-11-11)
+
+**Problem.** `auth.settings()` treated a `secrets.toml` it couldn't read like no settings at all. The app then fell back to local mode, where the one user is an admin and reads everything.
+- It turned up during the real setup: pasting the client id lost its closing quote, which made the file invalid TOML.
+- Running the old code on that file confirmed it: `configured()` returned `False`, and the app would have opened with no sign-in.
+- On this computer it was harmless, because the app only listens on localhost. On a shared server, one typo would have opened every document to everyone.
+
+**Fix (`citerag/auth.py`, `app.py`).** Sign-in is off only when it was **never set up**. Anything in between stops the app.
+
+| Settings | Before | Now |
+|---|---|---|
+| No `secrets.toml`, no `[auth]`, or both client values still `PASTE…` | local mode | local mode (unchanged) |
+| File can't be read (bad TOML) | local mode, everyone admin | **stops**: "can't be read (Illegal character … at line 4 …)" |
+| Only some settings filled in (e.g. the id but not the secret, or a line deleted) | local mode | **stops**: "only partly set up; fill in client_secret under [auth]" |
+| `auth = "…"` instead of a section | local mode | **stops** |
+| Any other error while reading | local mode | **stops** (fail closed) |
+
+How it works:
+- **Telling "no file" from "broken file":** Streamlit raises the same exception type for both. Its `error_id` tells them apart (`no-secrets-found` for a missing file). If a future Streamlit renames that id, a missing file would stop the app with a message. That failure is visible and safe, and `test_no_secrets_file_means_local_mode` would catch it.
+- **What the page shows:** the error names the line, without the file's full path or any value from it. The full Streamlit message goes to the server log.
+- **When the app stops:** the sign-in check is the first thing on the page, so a stopped app shows only the error, before the index or models load.
+
+**Tests.**
+- `tests/test_auth.py` (9, new) uses Streamlit's real secrets loader on temporary files:
+  - no file, the untouched template and no `[auth]` section → local mode
+  - filled in → sign-in on
+  - the exact missing-quote mistake → stops, says "line 4", and shows no path or secret
+  - three partly-filled setups → each names what's missing
+  - `auth` not a section → stops
+- `tests/test_ui.py` (+1): broken settings → only the error on the page, with no sidebar, chat box or buttons, and nothing searched.
+- 285 passing.
+
 ## Limitations
 
 - **The round trip through Google is checked by hand** in a browser. The flow is Streamlit's own; the automated tests fake the identity.
-- **An unreadable `secrets.toml` turns sign-in off without a word.**
-  - `auth.settings()` treats a file that can't be read like no settings at all, so the app falls back to local mode, where the one user is an admin.
-  - That's harmless while the app only listens on localhost.
-  - It must fail closed (refuse to start, with an error) before a shared deployment.
 - **`localhost` only, for now.** Google allows `http://localhost` redirects for testing; a shared server needs HTTPS and its own redirect URI (the API/Docker step).
 - **No audit log yet** of who asked what or which documents were used.
 - **Permissions are per folder, not per file;** a file's group changes when it moves (then Rescan).

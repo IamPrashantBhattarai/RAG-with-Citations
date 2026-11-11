@@ -6,7 +6,7 @@ import streamlit as st
 from pypdf import PdfReader, PdfWriter
 from streamlit.testing.v1 import AppTest
 
-from citerag import config, ui
+from citerag import auth, config, ui
 from citerag.generator import GenerationError
 from citerag.store import IndexReport
 from citerag.chats import Chat, ChatStore, Turn
@@ -385,3 +385,14 @@ def test_chats_are_kept_per_user(app, tmp_path):
 def test_a_broken_access_list_is_reported(app):
     at = app(docs=GROUP_DOCS, access='[[users]]\nemail = "oops"', email="boss@example.com")
     assert "access list has a problem" in at.error[0].value and not at.chat_input
+
+
+def test_broken_sign_in_settings_stop_the_app_instead_of_opening_it(app, monkeypatch):
+    def broken():
+        raise auth.AuthConfigError(".streamlit/secrets.toml can't be read (Illegal character)")
+
+    monkeypatch.setattr("citerag.auth.configured", broken)
+    at = app(docs=GROUP_DOCS)  # before the fix: local mode, everything readable as admin
+    assert not at.exception
+    assert "sign-in settings have a problem" in at.error[0].value and "Illegal character" in at.error[0].value
+    assert not at.chat_input and not at.sidebar.markdown and not at.button and FakeRetriever.calls == []
