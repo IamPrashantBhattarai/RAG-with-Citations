@@ -19,7 +19,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | [10-ocr.md](10-ocr.md) | OCR for scanned pages, photos and images (RapidOCR, benchmarked against EasyOCR and Apple Vision); forms read row by row; OCR only where there's no text layer | ✅ Done |
 | [11-more-formats.md](11-more-formats.md) | More file formats, one at a time: Word, PowerPoint, HTML and web pages (saved by URL, public addresses only), email with its attachments | ✅ Done |
 | [12-conversations.md](12-conversations.md) | Multi-turn chat: follow-ups rewritten into standalone questions (only when they look like one), chats saved and reopened from the address | ✅ Done |
-| [13-access.md](13-access.md) | Google sign-in and folder-based permissions enforced at search time; per-user chats; leak test | ✅ Built (needs the user's Google OAuth client) |
+| [13-access.md](13-access.md) | Google sign-in and folder-based permissions enforced at search time; per-user chats; leak test | ✅ Done (Google client set up 2026-11-11) |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
 

@@ -107,12 +107,38 @@ Without this, CiteRAG is a single-user tool on your computer. With it, people si
 
 **How permissions work:** folders under `data/` are groups. `data/hr/…` is for the group `hr`; `data/public/…` is for everyone signed in; files directly in `data/` (in no folder) are for admins only. Admins see everything and are the only ones who can upload, add web pages, remove documents and rescan. Each person's chats are their own.
 
-**Set it up (about 15 minutes):**
-1. In [Google Cloud Console](https://console.cloud.google.com/), open *APIs & Services → OAuth consent screen*. Choose *Internal* if you use Google Workspace, otherwise *External*, and add the people who will sign in as test users. The scopes needed are `openid`, `email` and `profile`.
-2. Go to *Credentials → Create credentials → OAuth client ID*, choose *Web application*, and add the authorised redirect URI `http://localhost:8501/oauth2callback`.
-3. Open `.streamlit/secrets.toml` (created for you, not in git) and paste the **Client ID** and **Client Secret** over the two `PASTE…` values. Everything else is already filled in, including a random cookie secret.
-4. Edit `access.toml` (not in git; see `access.example.toml`): list who may sign in, their groups, and who is an admin.
-5. Restart the app. To move existing documents into group folders, move the files under `data/` and click **Rescan**.
+**Set it up (about 20 minutes).** You need a Google account. No billing account, and no APIs to turn on.
+
+1. **Project.** In [Google Cloud Console](https://console.cloud.google.com/), create a project (*project picker → New project*) and select it.
+2. **Sign-in screen.** Open *Google Auth Platform* (formerly *APIs & Services → OAuth consent screen*) and click *Get started*. Enter an app name and a support email, then choose the audience:
+   - *Internal* if everyone who'll sign in has an account in your Google Workspace. This is only offered when the project belongs to that organisation.
+   - Otherwise *External*. While the app is in *Testing*, add everyone who will sign in under *Audience → Test users*.
+
+   Under *Data Access*, the scopes are `openid`, `email` and `profile`. Nothing else is needed.
+3. **OAuth client.** Go to *Clients → Create client* and choose *Web application*.
+   - Authorised redirect URI, exactly: `http://localhost:8501/oauth2callback` (`http`, `localhost`, port 8501, no trailing slash).
+   - Leave *Use this client for an AI-powered agent* unticked. That option is for clients an AI agent uses to work with someone's Google data.
+   - Copy the **Client ID** and **Client secret** straight away, because Google shows the secret in full only once.
+4. **Secrets.** Open `.streamlit/secrets.toml` (created for you, not in git). Paste the two values over the `PASTE…` placeholders, keeping both quotes. Everything else is already filled in, including a random cookie secret.
+5. **Access list.** Edit `access.toml` (not in git; see `access.example.toml`): who may sign in, their groups, and who is an admin. Changes apply on the next page load.
+6. **Restart** the app and open `http://localhost:8501` (not `127.0.0.1`). To move existing documents into group folders, move the files under `data/` and click **Rescan**.
+
+With *External*, two lists must agree:
+- Google's test users decide who can get through Google's sign-in.
+- `access.toml` decides who CiteRAG lets in and what they see.
+
+Publishing the app removes the test-user list. Google doesn't review apps that ask only for these basic scopes, so after that `access.toml` is the only list.
+
+**If sign-in doesn't work:**
+
+| You see | Fix |
+|---|---|
+| The normal app, with no sign-in button | A `PASTE…` placeholder is still in `secrets.toml`, the file isn't valid TOML (check for a missing quote), or the app wasn't restarted |
+| `Error 400: redirect_uri_mismatch` | The URI in the Google client must equal `redirect_uri` in `secrets.toml`, and the app must be on port 8501. New client settings can take a few minutes to apply. |
+| `Error 403: access_denied` | Add the account under *Audience → Test users* |
+| `Error 403: org_internal` | The audience is *Internal*: use a Workspace account, or switch to *External* |
+| `Error 401: invalid_client` | The Client ID or secret is mistyped, or belongs to another client |
+| "… isn't on the access list" | Google signed you in, but that email isn't in `access.toml` |
 
 The [Phase 13 build log](ai_agents/13-access.md) explains the design and the leak tests.
 

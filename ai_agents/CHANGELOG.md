@@ -4,6 +4,15 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Setup — Google sign-in configured ([13-access.md](13-access.md))
+- The user created:
+  - the Google Cloud project
+  - the sign-in screen (External, Testing, with test users)
+  - a Web-application OAuth client
+- The client's id and secret are in `.streamlit/secrets.toml` (git-ignored). Checked: the sign-in request goes to Google with the right redirect URI and scopes.
+- README sign-in steps rewritten for Google's current console (*Google Auth Platform*: Audience, Data Access, Clients), with the pitfalls met during setup and a troubleshooting table. `13-access.md` updated to match.
+- Found: an unreadable `secrets.toml` turns sign-in off without a word (local mode, admin). Listed under the phase's limitations, to be fixed before any shared deployment.
+
 ### Added — Phase 13: Sign-in and permissions ([13-access.md](13-access.md))
 - **Google sign-in** through Streamlit's built-in OpenID Connect (`st.login`/`st.user`/`st.logout`), in `citerag/auth.py`. It's on only when `.streamlit/secrets.toml` `[auth]` is filled in; otherwise the app is the local single-user tool it was. Only Google-verified emails count.
 - **Permissions** (`citerag/access.py`, `access.toml`):

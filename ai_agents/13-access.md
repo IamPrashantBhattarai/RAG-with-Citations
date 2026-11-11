@@ -1,6 +1,6 @@
 # Phase 13 — Sign-in and permissions
 
-**Status:** ✅ Built (2026-11-11). Google sign-in needs the user's OAuth client (manual step below) · Code: `citerag/auth.py` (new), `citerag/access.py` (new), `citerag/chats.py`, `citerag/config.py`, `app.py`; `access.example.toml`, `eval/permissions.py` (new) · Tests: `tests/test_access.py` (14), +6 `tests/test_ui.py`; 275 passing in total
+**Status:** ✅ Done (2026-11-11). The user's Google OAuth client and test users were set up the same day (Step 3) · Code: `citerag/auth.py` (new), `citerag/access.py` (new), `citerag/chats.py`, `citerag/config.py`, `app.py`; `access.example.toml`, `eval/permissions.py` (new) · Tests: `tests/test_access.py` (14), +6 `tests/test_ui.py`; 275 passing in total
 
 **Outcome in one line:** with Google sign-in set up, only the people listed in `access.toml` get in, each searches only the documents in their groups' folders (enforced at search time, before anything reaches the LLM), only admins manage documents, and chats are per user. On the real search stack, 504 searches by restricted users returned 0 passages they may not read.
 
@@ -59,11 +59,26 @@ The second is the RAG-specific one. A restricted passage that reaches the LLM ev
 
 These are the steps that can't be done from here, because they need the user's Google account:
 
-1. **Google Cloud Console → APIs & Services → OAuth consent screen.** Choose *Internal* (Google Workspace) or *External* (personal accounts; add each person as a test user while the app is in testing). Scopes: `openid`, `email`, `profile`.
-2. **Credentials → Create credentials → OAuth client ID → Web application.** Authorised redirect URI: `http://localhost:8501/oauth2callback` (add the server's `https://…/oauth2callback` when it's deployed).
+1. **Google Cloud Console → Google Auth Platform** (formerly *APIs & Services → OAuth consent screen*) → *Get started*. Choose *Internal* (Google Workspace) or *External* (any Google account; add each person under *Audience → Test users* while the app is in testing). Scopes (*Data Access*): `openid`, `email`, `profile`.
+2. **Clients → Create client → Web application.** Authorised redirect URI: `http://localhost:8501/oauth2callback` (add the server's `https://…/oauth2callback` when it's deployed). Google shows the client secret in full only at creation, so copy it then.
+   - With *External*, there are two lists: Google's test users decide who can finish Google's sign-in, and `access.toml` decides who CiteRAG lets in. Publishing the app (basic scopes need no Google review) leaves `access.toml` as the only list.
 3. **Paste the Client ID and Client Secret** into `.streamlit/secrets.toml` (`client_id`, `client_secret`), then restart the app.
 4. **Edit `access.toml`**: who may sign in, their groups, who is admin. The user's own email is already listed as admin.
 5. **Sort `data/` into group folders** when ready (`data/public/`, `data/hr/`…). Until then the existing files are in no folder, so admins only, and the admin sees everything as before. Moving files renames their sources (the folder becomes part of the name), so **Rescan** afterwards.
+
+**Set up for real (2026-11-11).** The user created:
+- the project
+- an *External* sign-in screen in *Testing*, with test users
+- a *Web application* client with the one redirect URI
+
+What came up along the way:
+- **"Use this client for an AI-powered agent" stays unticked.**
+  - That flag marks clients an AI agent uses to act on someone's Google data, such as Google's Workspace MCP servers.
+  - It can't be changed after the client is created.
+  - Google asks for a separate client for each kind of use. A future "answer from my Google Drive" feature would get its own client, and this sign-in client wouldn't change.
+- **The first paste lost the closing quote of `client_id`,** so `secrets.toml` wasn't valid TOML. It was found with a script that reports each setting as set, placeholder or missing without printing any value, and that compares the values with the client file Google gave.
+- **Checked:** the app's sign-in request goes to `accounts.google.com` with redirect `http://localhost:8501/oauth2callback` and scopes `openid email profile`.
+- The README now has the steps with Google's current menu names and a troubleshooting table.
 
 ## Step 4 — Evaluation: does anything leak?
 
@@ -110,7 +125,11 @@ The existing app tests now pin sign-in off, so they keep testing the local mode 
 
 ## Limitations
 
-- **Sign-in isn't tested against Google here.** That needs the user's OAuth client (Step 3). The flow is Streamlit's own; CiteRAG's side is tested with a faked identity.
+- **The round trip through Google is checked by hand** in a browser. The flow is Streamlit's own; the automated tests fake the identity.
+- **An unreadable `secrets.toml` turns sign-in off without a word.**
+  - `auth.settings()` treats a file that can't be read like no settings at all, so the app falls back to local mode, where the one user is an admin.
+  - That's harmless while the app only listens on localhost.
+  - It must fail closed (refuse to start, with an error) before a shared deployment.
 - **`localhost` only, for now.** Google allows `http://localhost` redirects for testing; a shared server needs HTTPS and its own redirect URI (the API/Docker step).
 - **No audit log yet** of who asked what or which documents were used.
 - **Permissions are per folder, not per file;** a file's group changes when it moves (then Rescan).
