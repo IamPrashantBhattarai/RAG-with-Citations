@@ -27,6 +27,7 @@ import argparse
 import logging
 import re
 import statistics
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,7 @@ from typing import Iterable
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from citerag import config, layout
+from citerag import config, layout, mail
 
 log = logging.getLogger(__name__)
 # pypdf logs a warning for every minor structural defect it repairs; too noisy.
@@ -43,7 +44,8 @@ logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 IMAGE_EXTENSIONS = layout.IMAGE_EXTENSIONS
-DOCUMENT_EXTENSIONS = layout.UNPAGED_EXTENSIONS | layout.SLIDE_EXTENSIONS  # Word, HTML, PowerPoint (Phase 11)
+DOCUMENT_EXTENSIONS = layout.UNPAGED_EXTENSIONS | layout.SLIDE_EXTENSIONS  # Word, HTML, email, PowerPoint (Phase 11)
+EMAIL_EXTENSIONS = layout.EMAIL_EXTENSIONS
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf"} | IMAGE_EXTENSIONS | DOCUMENT_EXTENSIONS
 # Old binary Office formats Docling can't read: say what to do instead of "unsupported".
 _LEGACY = {".doc": "Word 97-2003 (.doc): save it as .docx or PDF",
@@ -81,11 +83,68 @@ def load_file(path: str | Path, source: str | None = None) -> list[Page]:
         return load_text(path, source)
     if ext in IMAGE_EXTENSIONS:
         return load_image(path, source)
+    if ext in EMAIL_EXTENSIONS:
+        return load_email(path, source)
     if ext in DOCUMENT_EXTENSIONS:
         return load_document(path, source)
     if ext in _LEGACY:
         raise LoaderError(f"{path.name}: {_LEGACY[ext]}")
     raise LoaderError(f"{path.name}: unsupported file type {ext or '(none)'}")
+
+
+_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
+
+
+def load_email(path: str | Path, source: str | None = None, depth: int = 0) -> list[Page]:
+    """Read an email (.eml or Outlook .msg) as one text: headers, body, then its attachments.
+
+    Docling reads the headers and body; each attachment is read with the same
+    loader as an uploaded file and added under "## Attachment: <name>". Its own
+    headings become "### <name>: <heading>", so a citation always says which
+    attachment it came from. Attachments that can't be read are listed by
+    name. A forwarded email inside is read one level deep.
+    """
+    path = Path(path)
+    source = source or path.name
+    if not layout.available():
+        raise LoaderError(f"{source}: reading emails needs Docling (pip install docling)")
+    try:
+        parts = [t for t in (clean_text(t) for t in layout.parse_file(path)) if _has_text(t)]
+    except layout.LayoutError as e:
+        raise LoaderError(f"{source}: cannot read email ({e})") from e
+    except (OSError, ValueError) as e:
+        raise LoaderError(f"{source}: {e}") from e
+
+    if config.EMAIL_ATTACHMENTS:
+        try:
+            found = mail.attachments(path)
+        except Exception as e:  # a damaged attachment section shouldn't lose the email
+            log.warning("%s: could not read its attachments (%s)", source, e)
+            found = []
+        unread = []
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, a in enumerate(found):
+                f = Path(tmp) / str(i) / a.name  # own folder: two attachments may share a name
+                f.parent.mkdir()
+                f.write_bytes(a.data)
+                ext = f.suffix.lower()
+                if ext not in SUPPORTED_EXTENSIONS or (ext in EMAIL_EXTENSIONS and depth >= 1):
+                    unread.append(a.name)
+                    continue
+                try:
+                    pages = load_email(f, a.name, depth + 1) if ext in EMAIL_EXTENSIONS else load_file(f, a.name)
+                except LoaderError as e:
+                    log.warning("%s: attachment %s not read (%s)", source, a.name, e)
+                    pages = []
+                text = "\n\n".join(p.text for p in pages)
+                if not _has_text(text):
+                    unread.append(a.name)
+                    continue
+                text = _HEADING_RE.sub(lambda m, n=a.name: f"### {n}: {m.group(1)}", text)
+                parts.append(f"## Attachment: {a.name}\n\n{text}")
+        if unread:
+            parts.append("## Other attachments (not read)\n\n" + "\n".join(f"- {n}" for n in unread))
+    return [Page("\n\n".join(parts), source, 1)] if parts else []
 
 
 def load_document(path: str | Path, source: str | None = None) -> list[Page]:

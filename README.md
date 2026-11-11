@@ -23,7 +23,7 @@ question ─► search (meaning + keywords) ─► rerank ─► top 5 passages
 
 | Stage | What happens | Code |
 |---|---|---|
-| Load | PDF, Word (.docx), PowerPoint (.pptx), HTML, TXT, Markdown and image files are read page by page, and web pages can be saved by URL (slides one per page with their speaker notes, cited as "slide 3"; Word and text files as one text, cited by section). Scanned pages, photos and images are read with OCR (RapidOCR); a page that is mostly a form is read row by row, so each value stays next to its label. PDFs go through Docling's layout model: reading order across columns, headings, and tables written one row per line with each value next to its column name. Page headers, footers and text inside figures are dropped. Parsed files are cached, so only new or changed files are parsed again. If Docling can't read a file, pypdf does. Page numbers match what a PDF viewer shows. | `citerag/loaders.py`, `citerag/layout.py` |
+| Load | PDF, Word (.docx), PowerPoint (.pptx), HTML, email (.eml, .msg, with their attachments), TXT, Markdown and image files are read page by page, and web pages can be saved by URL (slides one per page with their speaker notes, cited as "slide 3"; Word and text files as one text, cited by section). Scanned pages, photos and images are read with OCR (RapidOCR); a page that is mostly a form is read row by row, so each value stays next to its label. PDFs go through Docling's layout model: reading order across columns, headings, and tables written one row per line with each value next to its column name. Page headers, footers and text inside figures are dropped. Parsed files are cached, so only new or changed files are parsed again. If Docling can't read a file, pypdf does. Page numbers match what a PDF viewer shows. | `citerag/loaders.py`, `citerag/layout.py` |
 | Chunk | Pages are split into passages of about 384 tokens, along sentence and section boundaries, with a small overlap so a fact isn't cut in half. | `citerag/chunker.py` |
 | Embed and store | Each passage is turned into a vector with `BAAI/bge-base-en-v1.5` and saved in a local ChromaDB index. Re-indexing only re-embeds files that changed. | `citerag/store.py` |
 | Search | Two searches find candidates. One matches meaning (vectors) and the other matches exact words, names and codes (BM25). Their results are merged, and a reranker model (`gte-reranker-modernbert-base`) reorders the top 10. If nothing is close enough to the question, no LLM is called. | `citerag/retriever.py` |
@@ -85,7 +85,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 It opens at http://localhost:8501. The first start takes a little longer while the models load.
 
-1. **Add documents.** Upload PDF, Word (.docx), PowerPoint (.pptx), HTML, TXT, MD or image files (PNG, JPG, TIFF…; scans and photos are read with OCR) in the sidebar, or put them in `data/` and click **Rescan data/ folder**. To add a web page, paste its address under **Add a web page**: it is saved into `data/` (public http(s) pages only, up to 5 MB) and indexed.
+1. **Add documents.** Upload PDF, Word (.docx), PowerPoint (.pptx), HTML, email (.eml, .msg), TXT, MD or image files (PNG, JPG, TIFF…; scans and photos are read with OCR) in the sidebar, or put them in `data/` and click **Rescan data/ folder**. To add a web page, paste its address under **Add a web page**: it is saved into `data/` (public http(s) pages only, up to 5 MB) and indexed.
 2. **Ask a question** in the box at the bottom.
 3. **Read the answer.** Citations appear as small numbers. Below the answer:
    - **Sources**: one per citation. Open it to see the whole passage with the quote highlighted, and **Show PDF** to see the cited page.
@@ -135,6 +135,7 @@ All settings live in `citerag/config.py` and can be overridden in `.env`. The on
 | `CITERAG_STRICT` | `0` | `1` removes unsupported statements |
 | `CITERAG_PDF_PARSER` | `docling` | `pypdf` reads PDFs without the layout model (faster, but tables and columns come out as run-on text) |
 | `CITERAG_PDF_FORMULAS` | `text` | `latex` writes formulas as LaTeX where the formula model agrees with the PDF text (1.2 GB model, about 20 s per formula) |
+| `CITERAG_EMAIL_ATTACHMENTS` | `1` | `0` lists an email's attachments by name instead of reading them |
 | `CITERAG_OCR` | `rapidocr` | OCR for pages without a text layer and for images: `ocrmac` uses Apple Vision on a Mac (`pip install ocrmac`; fewer glued words on printed scans), `off` turns OCR off |
 | `CITERAG_CHUNK_SIZE` | `384` | Tokens per chunk (changing it re-embeds everything on the next index) |
 | `CITERAG_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | Changing it needs `python -m citerag.store data/ --reset` |
@@ -182,6 +183,7 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 | `citerag/loaders.py` | Read PDF/TXT/MD into pages, clean PDF text |
 | `citerag/layout.py` | Docling parsing: PDFs (layout, OCR, forms), Word, PowerPoint, HTML; tables as rows, checked formulas, parse cache |
 | `citerag/web.py` | Save a web page by URL into `data/`, public addresses only |
+| `citerag/mail.py` | Pull the attachments out of an email, for the loader to read |
 | `citerag/chunker.py` | Split pages into chunks with stable IDs |
 | `citerag/store.py` | Embeddings and the ChromaDB index |
 | `citerag/retriever.py` | Hybrid search, reranking, the "not in the documents" cutoff |

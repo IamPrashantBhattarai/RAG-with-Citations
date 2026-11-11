@@ -7,7 +7,8 @@
     "handwriting.pdf",
     "leave-and-travel-policy.docx",
     "q3-business-review.pptx",
-    "rooftop-solar-guide.html"
+    "rooftop-solar-guide.html",
+    "pokhara-office-lease.eml"
   ],
   "questions": [
     {"id": "syl-01", "kind": "single", "question": "What are the pass marks for the Web Technology exam?",
@@ -240,6 +241,13 @@
     {"id": "html-04", "kind": "single", "question": "At what price does the Nepal Electricity Authority buy surplus rooftop solar power?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "buys surplus power from rooftop systems up to 10 kW at NPR 8 per unit"}], "facts": [["NPR 8", "8 per unit", "Rs 8", "Rs. 8"]]},
     {"id": "html-05", "kind": "single", "question": "What is the installed price of a 5 kW solar system?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "System size: 5 kW; Installed price (NPR): 520,000"}], "facts": [["520,000", "520000"]]},
     {"id": "html-06", "kind": "single", "question": "What kind of meter is required for net metering?", "evidence": [{"source": "rooftop-solar-guide.html", "quote": "A bidirectional meter is required."}], "facts": [["bidirectional", "bi-directional"]]},
+    {"id": "email-01", "kind": "single", "question": "What monthly rent did the landlord agree to for the Lakeside office in Pokhara?", "evidence": [{"source": "pokhara-office-lease.eml", "quote": "the landlord agreed to NPR 95,000 per month for the Lakeside office in Pokhara"}], "facts": [["95,000", "95000"]]},
+    {"id": "email-02", "kind": "single", "question": "When does the Pokhara office lease start?", "evidence": [{"source": "pokhara-office-lease.eml", "quote": "The lease starts on 1 December 2026 and runs for three years."}], "facts": [["1 December 2026", "December 1, 2026", "1 Dec 2026", "Dec 1, 2026"]]},
+    {"id": "email-03", "kind": "single", "question": "How large is the deposit for the Pokhara office?", "evidence": [{"source": "pokhara-office-lease.eml", "quote": "with a deposit of three months' rent"}], "facts": [["three months", "3 months"]]},
+    {"id": "email-04", "kind": "single", "question": "Who sent the update about the Pokhara office lease?", "evidence": [{"source": "pokhara-office-lease.eml", "quote": "From: Anita Sharma <anita.sharma@northwind.example>"}], "facts": [["Anita Sharma"]]},
+    {"id": "email-05", "kind": "single", "question": "How much is budgeted for IT equipment for the Pokhara office?", "evidence": [{"source": "pokhara-office-lease.eml", "quote": "Item: IT equipment; Cost (NPR): 600,000"}], "facts": [["600,000", "600000"]]},
+    {"id": "email-06", "kind": "single", "question": "What is the total setup budget for the Pokhara office?", "evidence": [{"source": "pokhara-office-lease.eml", "quote": "Item: Total; Cost (NPR): 1,125,000"}], "facts": [["1,125,000", "1125000"]]},
+    {"id": "email-07", "kind": "single", "question": "By when does the Pokhara office setup budget need to be approved?", "evidence": [{"source": "pokhara-office-lease.eml", "quote": "Please approve it by Friday so we can order the furniture."}], "facts": [["Friday"]]},
 
     {"id": "un-01", "kind": "unanswerable", "question": "Who is the instructor for Web Technology I?",
      "evidence": [], "facts": []},
@@ -265,6 +273,8 @@
      "evidence": [], "facts": []},
     {"id": "un-12", "kind": "unanswerable", "question": "What warranty comes with the rooftop solar panels?",
      "evidence": [], "facts": []},
+    {"id": "un-13", "kind": "unanswerable", "question": "What is the Pokhara landlord's phone number?",
+     "evidence": [], "facts": [], "forbidden": ["+977", "61-000000"]},
 
     {"id": "off-01", "kind": "off_topic", "question": "How do I bake sourdough bread?", "evidence": [], "facts": []},
     {"id": "off-02", "kind": "off_topic", "question": "What is the capital of Australia?", "evidence": [], "facts": []},

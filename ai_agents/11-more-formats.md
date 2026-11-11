@@ -1,6 +1,6 @@
 # Phase 11 — More file formats
 
-**Status:** 🔄 In progress: Word (.docx), PowerPoint (.pptx), HTML files and web pages done (2026-11-11). Next: email · Code so far: `citerag/layout.py`, `citerag/loaders.py`, `citerag/chunker.py`, `citerag/store.py`, `citerag/generator.py`, `citerag/gemini.py`, `citerag/validator.py`, `app.py` · Tests so far: +5 `tests/test_layout.py`, +3 `tests/test_loaders.py`, +1 `tests/test_generator.py`, +1 `tests/test_chunker.py`, `tests/test_web.py` (4, new); 237 passing in total
+**Status:** ✅ Done (2026-11-11): Word (.docx), PowerPoint (.pptx), HTML files and web pages, email (.eml, .msg) · Code: `citerag/layout.py`, `citerag/loaders.py`, `citerag/mail.py` (new), `citerag/web.py` (new), `citerag/chunker.py`, `citerag/store.py`, `citerag/generator.py`, `citerag/gemini.py`, `citerag/validator.py`, `citerag/config.py`, `app.py` · Tests: +5 `tests/test_layout.py`, +3 `tests/test_loaders.py`, +1 `tests/test_generator.py`, +1 `tests/test_chunker.py`, `tests/test_web.py` (4, new), `tests/test_mail.py` (4, new); 241 passing in total
 
 ## Goal
 
@@ -137,4 +137,40 @@ Checked live: the Wikipedia page saved and parsed in 2.2 s; `http://localhost:85
 - **DNS can change between the check and the download** (DNS rebinding); the window is small, and a later redirect is checked again.
 - **Pages built by JavaScript** (single-page apps) have little HTML to read, because no browser runs here.
 - **Logins and paywalls** aren't handled; you get what an anonymous visitor gets.
+
+## Email (.eml, .msg)
+
+### What Docling gives
+
+Docling 2.146 has an email reader for both formats. A `.msg` (Outlook) is converted to a standard RFC 822 message first, so both go through one path. It writes the subject as the title, then `From:`, `To:`, `Cc:` and `Date:` lines (the date in UTC), and the body. Encoded headers are decoded and collapsed to one line, so a header can't forge a fake line, and an HTML-only body goes through its HTML reader. **Attachments are only named, and by default not even that.** But the answer is often in the attached PDF or spreadsheet.
+
+### Decisions
+
+- **Attachments are read** (`CITERAG_EMAIL_ATTACHMENTS=1`, the default). `citerag/mail.py` (new) pulls them out, and `loaders.load_email` reads each one with **the same loader as an uploaded file**: PDF (with OCR), Word, PowerPoint, HTML, text, images. Each is added under `## Attachment: <name>`, with its own headings renamed `### <name>: <heading>`, so a citation's section always says which attachment it came from. Anything that can't be read is listed under "Other attachments (not read)".
+- **Skipped:** inline images and images under 30 KB (logos and icons in signatures), anything over 25 MB, and attachments past the first 20.
+- **Safe names:** each attachment is written into its own folder inside a temporary directory, under a safe name (base name only, odd characters replaced), so `../../x` can't write elsewhere and two files called `scan.pdf` don't collide.
+- **Forwarded emails:** the first version read a forwarded email (a `message/rfc822` part) again as an attachment, and its text appeared **twice**, because Docling (through mail-parser) already puts a forwarded email's text in the body, at any depth. Now only the forwarded email's **files** are read, one level deep. An `.eml` or `.msg` attached as a plain file, which Docling doesn't open, is still read as an email of its own, one level deep.
+- **Citations** give the file name and section (subject, or attachment), not "p. 1". An attached PDF's page numbers are lost; its text is cited under the attachment's section.
+
+### Evaluation
+
+`data/pokhara-office-lease.eml` is a test email written for this phase: a reply about a Pokhara office lease, with plain and HTML bodies, a quoted earlier message, an inline logo, a Word budget, and a CSV of contacts. It gets 7 questions (email-01 to email-07): rent, lease start, deposit, sender, approval deadline, and **two only the Word attachment answers** (IT equipment, total budget). There is also **un-13**: the landlord's phone number, which is only in the unread CSV, with the number as a forbidden fact. 126 questions in total, 98 answerable.
+
+- **Retrieval** (8 documents, 103 chunks): all 7 in the top 5, including both attachment questions. Reranker R@1 0.85, R@5 0.98; still missing att-17 and multi-01. Hybrid alone misses two more paper questions now that eight documents compete (att-08, vit-04); the reranker, the default, finds them.
+- **Answers** (`gemini-3.5-flash-lite`): **7/7 correct**, including both attachment questions (IT equipment NPR 600,000, total NPR 1,125,000), with no checker warnings. The highlighted quote is on the evidence in 6. un-13 was declined, with no phone number made up from the CSV it couldn't see.
+
+### Tests
+
+`test_mail.py` (4, new):
+- attachments: inline and small images skipped, a large image kept, a path-traversal name made safe, a forwarded email's file returned instead of the email
+- safe names
+- `.msg` attachments through a stand-in for `oxmsg`
+- a real email read end to end: headers, body, the Word attachment with its heading renamed, the forwarded email's text once and its file as an attachment, the CSV listed, no logo, cited by name, and attachments off when the setting is off
+
+### Limitations
+
+- **No real Outlook file was tested.** `.msg` support relies on Docling's converter and on `oxmsg` for attachments; the attachment step was tested with a stand-in. A sample `.msg` would close this.
+- **Spreadsheet attachments** (CSV, XLSX) are listed but not read. Spreadsheets are a format of their own, not covered yet.
+- **Dates are shown in UTC** (Docling), so 10:15 in Nepal reads as 04:30.
+- **Old `.doc`/`.ppt`** need LibreOffice, which Docling uses to convert them; the loader still says to save as .docx/.pptx.
 

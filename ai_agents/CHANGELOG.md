@@ -4,6 +4,14 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Added — Phase 11 (part 4): Email ([11-more-formats.md](11-more-formats.md#email-eml-msg))
+- `.eml` and Outlook `.msg` are read with Docling's email reader: the subject as title, From/To/Cc/Date, then the body. Cited by name and section.
+- **Attachments are read** (`CITERAG_EMAIL_ATTACHMENTS`, on by default): `citerag/mail.py` (new) extracts them, and each is read by the same loader as an upload. It's added under "## Attachment: <name>", with its headings renamed "### <name>: …". Inline and small images (logos), files over 25 MB and attachments past the first 20 are skipped; unreadable ones are listed. Safe names, each in its own temporary folder.
+- Forwarded emails: their text is already in Docling's body, so only their files are read (one level). The first version read the text twice.
+- **Eval:** `data/pokhara-office-lease.eml` (a test email written for this) and 7 questions, two answered only by its Word attachment, plus un-13 (a phone number only in an unread CSV). Retrieval: 7/7 in the top 5. Answers: 7/7 correct, with no checker warnings; un-13 declined.
+- Tests: `test_mail.py` (4, new). 241 passing.
+- Phase 11 is done: Word, PowerPoint, HTML and web pages, and email.
+
 ### Added — Phase 11 (part 3): HTML files and web pages ([11-more-formats.md](11-more-formats.md#html-files-and-web-pages))
 - `.html` / `.htm` files are read as one text, cited by name and section. Menus, banners and footers are left out, and so are link targets (for Word too).
 - `layout.clean_html`: before Docling, a page is cut down to its `<main>` or `<article>`, without clutter tags, hidden elements, or elements whose id or class has a clutter word (`toc`, `menu`, `cookie`, `lang`, `editsection`, `reference`…, whole words only). On a real Wikipedia article: 56,566 → 29,301 characters, starting at the article, with no `[ 1 ]` markers the LLM could mistake for its own citations.

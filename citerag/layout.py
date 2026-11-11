@@ -61,7 +61,8 @@ FORMULA_MODES = ("text", "latex")
 OCR_ENGINES = ("rapidocr", "ocrmac", "off")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 # Formats without fixed pages (Phase 11): read as one text, cited by section rather than page.
-UNPAGED_EXTENSIONS = {".docx", ".html", ".htm"}
+UNPAGED_EXTENSIONS = {".docx", ".html", ".htm", ".eml", ".msg"}
+EMAIL_EXTENSIONS = {".eml", ".msg"}
 HTML_EXTENSIONS = {".html", ".htm"}
 # Saved web pages (citerag/web.py) carry the address they came from in this meta tag.
 _SOURCE_URL_RE = re.compile(rb'<meta name="citerag-source-url" content="([^"]+)"')
@@ -504,10 +505,11 @@ def _converter(formulas: str, ocr: str):
         opts.ocr_options = OcrMacOptions(lang=["en-US"])
     opts.table_structure_options.mode = TableFormerMode.ACCURATE
     return DocumentConverter(
-        allowed_formats=[InputFormat.PDF, InputFormat.IMAGE, InputFormat.DOCX, InputFormat.PPTX, InputFormat.HTML],
+        allowed_formats=[InputFormat.PDF, InputFormat.IMAGE, InputFormat.DOCX, InputFormat.PPTX, InputFormat.HTML,
+                         InputFormat.EMAIL],
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts),
                         InputFormat.IMAGE: ImageFormatOption(pipeline_options=opts)},
-    )  # DOCX, PPTX and HTML use Docling's readers for them: no layout model needed, the file has structure
+    )  # DOCX, PPTX, HTML and email use Docling's readers for them: no layout model needed, the file has structure
 
 
 def _cache_path(data: bytes, formulas: str, ocr: str) -> Path:

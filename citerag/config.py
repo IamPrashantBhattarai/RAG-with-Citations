@@ -45,6 +45,9 @@ PDF_FORMULAS = os.getenv("CITERAG_PDF_FORMULAS", "text")
 # values on the test form; Apple Vision 15/17 but glued fewer words on printed scans
 # (ai_agents/10-ocr.md). Pages that have a text layer keep it either way.
 OCR = os.getenv("CITERAG_OCR", "rapidocr")
+# Read the attachments of emails (.eml/.msg) as part of the email (Phase 11): PDF, Word, PowerPoint,
+# HTML, text and image attachments; inline images and logos are skipped. "0" lists them by name only.
+EMAIL_ATTACHMENTS = os.getenv("CITERAG_EMAIL_ATTACHMENTS", "1") == "1"
 # Parsed pages, keyed by file content and parser settings, so unchanged files aren't parsed again.
 PARSE_CACHE_DIR = Path(os.getenv("CITERAG_PARSE_CACHE_DIR", ROOT_DIR / ".cache" / "parsed"))
 
