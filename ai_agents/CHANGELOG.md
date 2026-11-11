@@ -4,6 +4,23 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-11
 
+### Added — Phase 13: Sign-in and permissions ([13-access.md](13-access.md))
+- **Google sign-in** through Streamlit's built-in OpenID Connect (`st.login`/`st.user`/`st.logout`), in `citerag/auth.py`. It's on only when `.streamlit/secrets.toml` `[auth]` is filled in; otherwise the app is the local single-user tool it was. Only Google-verified emails count.
+- **Permissions** (`citerag/access.py`, `access.toml`):
+  - only listed emails get in; folders under `data/` are groups; `public/` is for everyone signed in; files in no folder are admins only
+  - admins read everything and are the only ones who upload, add web pages, remove and rescan
+  - `ScopedRetriever` filters every search to the user's documents and checks every hit again
+  - an empty set returns nothing (the Phase 4 retriever treats an empty filter as "all")
+- **App:** sign-in screen, "Signed in as", per-user document list and "Search in", an upload folder (group) choice for admins, uploads indexed with their folder in the name, per-user chats (`.chats/<key>/`), and saved answers hidden when they used a document the user can no longer read. `access.toml` is re-read when edited.
+- **Leak test** `eval/permissions.py` (new): 126 eval questions × 4 restricted users on the real search stack, 504 searches, 0 passages from documents a user may not read.
+- **Fixed:** chats saved in the same second were listed in random order (second-resolution timestamps).
+- **Manual step for the user:** create a Google OAuth client (redirect `http://localhost:8501/oauth2callback`), paste its id and secret into `.streamlit/secrets.toml`, edit `access.toml`. The README has the steps.
+- Tests: `test_access.py` (14), +6 `test_ui.py`. 275 passing.
+
+### System
+- Installed `Authlib` 1.9.4 and `joserfc` 1.8.0 (`--exclude-newer 2026-11-04`). `requirements.txt`: `streamlit[pdf,auth]>=1.66`.
+- New git-ignored files: `access.toml` (lists people's emails) and `.streamlit/secrets.toml` (already ignored; now created with a random cookie secret). `access.example.toml` committed.
+
 ### Added — Phase 12: Multi-turn chat ([12-conversations.md](12-conversations.md))
 - `citerag/conversation.py` (new): a follow-up ("And how big is the deposit?") is rewritten by the LLM from the last three turns into a standalone question, which then goes through the unchanged search → cited answer → checks pipeline. The history never reaches the answering prompt. A cheap check (`is_follow_up`: pointing words, "what about…", four words or fewer) skips the call for questions that stand alone; on the 126 standalone eval questions it flags 3. Bad or failed rewrites fall back to the question as typed.
 - `Backend.complete()` on both backends. Claude: `beta.messages.create`, effort `low` (Claude Opus 5.5 always thinks and defaults to `medium`), 4,096 tokens, the same refusal fallback. Gemini: thinking `LOW`, same next-model fallback. Anthropic error mapping moved into one shared `_anthropic_errors`.

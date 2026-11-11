@@ -182,12 +182,14 @@ class FakeStore:
 
 class FakeRetriever:
     reranker = None
+    calls: list = []  # the `sources` of every search, to check what a user could search
 
     def __init__(self, store):
         self.store = store
 
     def retrieve(self, question, k, sources):
-        return HITS
+        FakeRetriever.calls.append(sources)
+        return HITS  # whatever was asked: a retriever that ignores the filter
 
 
 class FailingBackend:
@@ -214,8 +216,16 @@ class ChatBackend(FakeBackend):
 @pytest.fixture
 def app(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "CHATS_DIR", tmp_path / "chats")
+    monkeypatch.setattr(FakeRetriever, "calls", [])
+    monkeypatch.setattr("citerag.auth.configured", lambda: False)  # local mode, whatever secrets.toml says
 
-    def run(reply="The pass marks are 45 [1]. Unit VII covers PHP [2].", docs=None, backend=None):
+    def run(reply="The pass marks are 45 [1]. Unit VII covers PHP [2].", docs=None, backend=None,
+            access=None, email=None):
+        if access is not None:  # sign-in on: `email` is who Google says is signed in (None: nobody)
+            (tmp_path / "access.toml").write_text(access)
+            monkeypatch.setattr(config, "ACCESS_FILE", tmp_path / "access.toml")
+            monkeypatch.setattr("citerag.auth.configured", lambda: True)
+            monkeypatch.setattr("citerag.auth.identity", lambda: email)
         monkeypatch.setattr(FakeStore, "docs", {"syllabus.pdf": 2} if docs is None else docs)
         monkeypatch.setattr("citerag.store.Store", FakeStore)
         monkeypatch.setattr("citerag.retriever.Retriever", FakeRetriever)
@@ -306,3 +316,72 @@ def test_a_saved_chat_reopens_from_the_address(app, tmp_path):
     assert "**What are the pass marks?**" in [m.value for m in reopened.markdown]
     assert any(b.label == "Delete this chat" for b in reopened.sidebar.button)
     assert any(b.label == "What are the pass marks?" for b in reopened.sidebar.button)  # listed under Chats
+
+
+# -- sign-in and permissions (Phase 13) ---------------------------------------------
+
+ACCESS = """
+[[users]]
+email = "boss@example.com"
+admin = true
+
+[[users]]
+email = "asha@example.com"
+groups = ["hr"]
+"""
+GROUP_DOCS = {"hr/policy.pdf": 2, "finance/budget.xlsx": 1, "public/guide.pdf": 1, "loose.pdf": 1}
+
+
+def sidebar_text(at):
+    return " ".join(m.value for m in at.sidebar.markdown)
+
+
+def test_nobody_signed_in_sees_only_the_sign_in_button(app):
+    at = app(docs=GROUP_DOCS, access=ACCESS, email=None)
+    assert [b.label for b in at.button] == ["Sign in with Google"]
+    assert not at.chat_input and not at.sidebar.markdown and FakeRetriever.calls == []
+
+
+def test_an_unlisted_account_is_turned_away(app):
+    at = app(docs=GROUP_DOCS, access=ACCESS, email="stranger@example.com")
+    assert "isn't on the access list" in at.error[0].value
+    assert not at.chat_input and [b.label for b in at.button] == ["Sign out"]
+
+
+def test_a_member_sees_and_searches_only_their_groups(app):
+    at = app(docs=GROUP_DOCS, access=ACCESS, email="asha@example.com")
+    shown = sidebar_text(at)
+    assert "hr/policy\\.pdf" in shown or "hr/policy" in shown
+    assert "guide" in shown and "budget" not in shown and "loose" not in shown
+    labels = [b.label for b in at.sidebar.button]
+    assert "Sign out" in labels and not any("Rescan" in l for l in labels)  # no document management
+    assert not at.sidebar.selectbox and not at.get("file_uploader")
+    at = at.chat_input[0].set_value("What are the pass marks?").run()
+    assert not at.exception
+    assert FakeRetriever.calls == [["hr/policy.pdf", "public/guide.pdf"]]  # never asked for more
+    # The fake retriever answered with syllabus.pdf anyway: dropped, so nothing reaches the model or page.
+    assert not any("syllabus" in e.label for e in at.expander)
+    assert "45" not in " ".join(m.value for m in at.main.markdown if "pass marks" not in m.value)
+
+
+def test_an_admin_sees_everything_and_chooses_the_folder_for_uploads(app):
+    at = app(docs=GROUP_DOCS, access=ACCESS, email="boss@example.com")
+    shown = sidebar_text(at)
+    assert all(word in shown for word in ("policy", "budget", "guide", "loose"))
+    [folder] = at.sidebar.selectbox
+    assert folder.label == "Into folder (group)" and folder.value == "public"
+    assert any("Rescan" in b.label for b in at.sidebar.button)
+
+
+def test_chats_are_kept_per_user(app, tmp_path):
+    at = app(docs=GROUP_DOCS, access=ACCESS, email="boss@example.com")
+    at.chat_input[0].set_value("What are the pass marks?").run()
+    saved = [p.parent.name for p in (tmp_path / "chats").rglob("*.json")]
+    assert len(saved) == 1 and saved[0] != "chats"  # in the user's own folder
+    other = app(docs=GROUP_DOCS, access=ACCESS, email="asha@example.com")
+    assert not any(b.key and b.key.startswith("chat-") for b in other.sidebar.button)
+
+
+def test_a_broken_access_list_is_reported(app):
+    at = app(docs=GROUP_DOCS, access='[[users]]\nemail = "oops"', email="boss@example.com")
+    assert "access list has a problem" in at.error[0].value and not at.chat_input

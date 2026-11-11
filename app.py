@@ -4,6 +4,11 @@ Ask questions about your documents. The answer streams in with [n]
 citations; each source opens to its passage (quote highlighted) and the
 cited PDF page, and the Phase 6 checks highlight statements their sources
 don't support. Documents are added, removed and rescanned in the sidebar.
+
+Sign-in (Phase 13): with Google sign-in set up in .streamlit/secrets.toml,
+only the people in access.toml get in, each sees only their groups'
+documents (folders under data/), and only admins manage documents. Without
+it, the app is a local single-user tool, as before.
 """
 
 from __future__ import annotations
@@ -14,7 +19,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from citerag import config, ui, web
+from citerag import auth, config, ui, web
+from citerag.access import LOCAL_USER, PUBLIC, AccessError, Policy, ScopedRetriever, User, group_of
 from citerag.chats import Chat, ChatStore, Turn
 from citerag.conversation import is_follow_up, standalone_question
 from citerag.generator import Answer, GenerationError, Generator, make_backend, pages_label
@@ -24,6 +30,7 @@ from citerag.store import EmbeddingMismatchError, Store
 from citerag.validator import Validator
 
 PROVIDERS = {"gemini": "Gemini (free tier)", "anthropic": "Claude"}
+ROOT_FOLDER = "(no folder: admins only)"
 
 # .streamlit/config.toml turns Streamlit's module watcher off, but Streamlit
 # restarts it when a browser session reconnects. It then logs a traceback for
@@ -52,8 +59,18 @@ def backend(provider: str):
 
 
 @st.cache_resource
-def chat_store() -> ChatStore:
-    return ChatStore()
+def chat_store(folder: str) -> ChatStore:
+    return ChatStore(Path(folder))
+
+
+@st.cache_resource
+def _policy(path: str, mtime: float) -> Policy:  # mtime: an edited access.toml is read again
+    return Policy.load(Path(path))
+
+
+def policy() -> Policy:
+    path = config.ACCESS_FILE
+    return _policy(str(path), path.stat().st_mtime if path.exists() else 0.0)
 
 
 def open_chat(chat: Chat) -> None:
@@ -75,38 +92,62 @@ def flash(kind: str, message: str) -> None:
     st.session_state.flash.append((kind, message))
 
 
+# -- sign-in -------------------------------------------------------------------------
+
+
+def current_user() -> User:
+    """Who is using the app; stops the page with a sign-in or "no access" screen if nobody may."""
+    if not auth.configured():
+        return LOCAL_USER
+    email = auth.identity()
+    if email is None:
+        st.title("CiteRAG")
+        st.caption("Ask questions about your documents. Answers cite the passages they come from.")
+        st.button("Sign in with Google", type="primary", on_click=auth.sign_in)
+        st.stop()
+    try:
+        user = policy().user(email)
+    except AccessError as e:
+        st.title("CiteRAG")
+        st.error(f"Sign-in is set up, but the access list has a problem: {e}")
+        st.button("Sign out", on_click=auth.sign_out)
+        st.stop()
+    if user is None:
+        st.title("CiteRAG")
+        st.error(f"{email} isn't on the access list. Ask an admin to add you.")
+        st.button("Sign out", on_click=auth.sign_out)
+        st.stop()
+    return user
+
+
+def chats_folder(user: User) -> str:
+    # The local user keeps the chats saved before sign-in existed; each signed-in user has their own folder.
+    return str(config.CHATS_DIR if user is LOCAL_USER else config.CHATS_DIR / user.key)
+
+
 # -- sidebar -------------------------------------------------------------------------
 
 
-def sidebar(store: Store) -> dict:
+def sidebar(store: Store, user: User) -> dict:
     with st.sidebar:
+        if user is not LOCAL_USER:
+            st.caption(f"Signed in as {ui.escape_md(user.email)}" + (" · admin" if user.admin else ""))
+            st.button("Sign out", on_click=auth.sign_out, width="stretch")
+            st.divider()
         st.subheader("Documents")
-        docs = store.sources()
+        docs = {name: n for name, n in store.sources().items() if user.can_read(name)}
         for name, chunks in docs.items():
             left, right = st.columns([6, 1], vertical_alignment="center")
             left.markdown(f"{ui.escape_md(name)}  \n:gray[{chunks} chunk{'s' * (chunks != 1)}]")
-            if right.button("", key=f"remove-{name}", icon=":material/close:", type="tertiary",
-                            help=f"Remove from the index (the file stays in {config.DATA_DIR.name}/)"):
+            if user.admin and right.button("", key=f"remove-{name}", icon=":material/close:", type="tertiary",
+                                           help=f"Remove from the index (the file stays in {config.DATA_DIR.name}/)"):
                 store.delete_source(name)
                 flash("success", f"Removed {name} from the index.")
                 st.rerun()
         if not docs:
-            st.caption("No documents indexed yet.")
-
-        files = st.file_uploader("Add documents", type=sorted(e.lstrip(".") for e in SUPPORTED_EXTENSIONS),
-                                 accept_multiple_files=True,
-                                 key=f"upload-{st.session_state.upload_key}")
-        if files and st.button("Add to index", type="primary", width="stretch"):
-            add_files(store, files)
-        with st.form("add-url", clear_on_submit=True, border=False):
-            url = st.text_input("Add a web page", placeholder="https://…",
-                                help="The page is saved into the documents folder and indexed. "
-                                     "Only public http(s) pages, up to 5 MB.")
-            if st.form_submit_button("Save and index", width="stretch") and url.strip():
-                add_url(store, url)
-        if st.button(f"Rescan {config.DATA_DIR.name}/ folder", width="stretch",
-                     help=f"Index new or changed files in {config.DATA_DIR.name}/ and drop files that are gone"):
-            rescan(store)
+            st.caption("No documents indexed yet." if user.admin else "No documents are shared with you yet.")
+        if user.admin:
+            manage_documents(store, user)
 
         st.divider()
         st.subheader("Settings")
@@ -126,35 +167,67 @@ def sidebar(store: Store) -> dict:
         strict = st.toggle("Strict mode", value=config.STRICT, disabled=not validate,
                            help="Remove statements that fail the checks. The answer appears once it "
                                 "has been checked instead of streaming.")
-        chats_section()
+        chats_section(user)
     return {"provider": provider, "sources": sources or None, "k": k,
-            "validate": validate, "strict": strict and validate}
+            "validate": validate, "strict": strict and validate, "documents": list(docs)}
 
 
-def chats_section() -> None:
+def manage_documents(store: Store, user: User) -> None:
+    """Uploads, web pages and rescans: admins only."""
+    folder = config.DATA_DIR
+    if user is not LOCAL_USER:  # with sign-in, a document goes into a group's folder
+        groups = sorted({g for g in (group_of(s) for s in store.sources()) if g}
+                        | {p.name for p in config.DATA_DIR.iterdir() if p.is_dir() and not p.name.startswith(".")}
+                        | {PUBLIC})
+        choice = st.selectbox("Into folder (group)", groups + [ROOT_FOLDER], index=groups.index(PUBLIC),
+                              help="Folders are groups: people see the folders of their groups in "
+                                   "access.toml. Everyone signed in sees public.")
+        folder = config.DATA_DIR if choice == ROOT_FOLDER else config.DATA_DIR / choice
+    files = st.file_uploader("Add documents", type=sorted(e.lstrip(".") for e in SUPPORTED_EXTENSIONS),
+                             accept_multiple_files=True, key=f"upload-{st.session_state.upload_key}")
+    if files and st.button("Add to index", type="primary", width="stretch"):
+        add_files(store, files, folder)
+    with st.form("add-url", clear_on_submit=True, border=False):
+        url = st.text_input("Add a web page", placeholder="https://…",
+                            help="The page is saved into the documents folder and indexed. "
+                                 "Only public http(s) pages, up to 5 MB.")
+        if st.form_submit_button("Save and index", width="stretch") and url.strip():
+            add_url(store, url, folder)
+    if st.button(f"Rescan {config.DATA_DIR.name}/ folder", width="stretch",
+                 help=f"Index new or changed files in {config.DATA_DIR.name}/ and drop files that are gone"):
+        rescan(store)
+
+
+def chats_section(user: User) -> None:
     st.divider()
     st.subheader("Chats")
+    store = chat_store(chats_folder(user))
     current = st.session_state.chat
     if st.button("New chat", width="stretch", disabled=not current.turns):
         open_chat(Chat())
         st.rerun()
-    for chat_id, title in chat_store().list():
+    for chat_id, title in store.list():
         if st.button(title, key=f"chat-{chat_id}", type="tertiary", disabled=chat_id == current.id):
-            open_chat(chat_store().load(chat_id) or Chat())
+            open_chat(store.load(chat_id) or Chat())
             st.rerun()
     if current.turns and st.button("Delete this chat", width="stretch"):
-        chat_store().delete(current.id)
+        store.delete(current.id)
         open_chat(Chat())
         st.rerun()
 
 
-def add_files(store: Store, files) -> None:
+def source_name(path: Path) -> str:
+    """How a saved file is named in the index: its path under data/ ("hr/policy.pdf")."""
+    return path.resolve().relative_to(config.DATA_DIR.resolve()).as_posix()
+
+
+def add_files(store: Store, files, folder: Path) -> None:
     pages, errors = [], []
     with st.spinner("Reading and indexing…"):
         for f in files:
             try:
-                path = ui.save_upload(f.name, f.getvalue(), config.DATA_DIR)
-                loaded = load_file(path)
+                path = ui.save_upload(f.name, f.getvalue(), folder)
+                loaded = load_file(path, source_name(path))
             except (ValueError, LoaderError) as e:
                 errors.append(str(e))
                 continue
@@ -169,16 +242,16 @@ def add_files(store: Store, files) -> None:
     st.rerun()
 
 
-def add_url(store: Store, url: str) -> None:
+def add_url(store: Store, url: str, folder: Path) -> None:
     with st.spinner("Downloading and indexing…"):
         try:
-            path = web.fetch(url, config.DATA_DIR)
-            pages = load_file(path)
+            path = web.fetch(url, folder)
+            pages = load_file(path, source_name(path))
         except (web.WebError, LoaderError) as e:
             flash("error", str(e))
             st.rerun()
         if pages:
-            flash("success", f"Saved {path.name}. " + ui.report_text(store.index(pages)))
+            flash("success", f"Saved {source_name(path)}. " + ui.report_text(store.index(pages)))
         else:
             flash("error", f"{path.name}: no text found on the page")
     st.rerun()
@@ -197,7 +270,7 @@ def rescan(store: Store) -> None:
 # -- answers -------------------------------------------------------------------------
 
 
-def ask(question: str, settings: dict, retriever: Retriever, validator: Validator) -> Answer | None:
+def ask(question: str, settings: dict, retriever, validator: Validator) -> Answer | None:
     generator = Generator(retriever, backend(settings["provider"]), validator,
                           validate=settings["validate"], strict=settings["strict"])
     placeholder = st.empty()
@@ -221,7 +294,7 @@ def ask(question: str, settings: dict, retriever: Retriever, validator: Validato
     return answer
 
 
-def show_answer(answer: Answer, turn: int) -> None:
+def show_answer(answer: Answer, turn: int, user: User) -> None:
     st.markdown(ui.answer_markdown(answer), unsafe_allow_html=True)
     if line := ui.summary_line(answer):
         st.caption(line)
@@ -234,6 +307,8 @@ def show_answer(answer: Answer, turn: int) -> None:
             if c.chunk_id in hits:
                 st.markdown(ui.passage_html(hits[c.chunk_id].text, c.start_char, c.end_char),
                             unsafe_allow_html=True)
+            if not user.can_read(c.source):
+                continue
             pdf = ui.source_pdf(c.source, config.DATA_DIR)
             if pdf is not None and st.toggle(f"Show PDF {c.pages}", key=f"pdf-{turn}-{c.number}"):
                 st.pdf(cited_pages(str(pdf), pdf.stat().st_mtime, c.page_start, c.page_end), height=600)
@@ -267,8 +342,10 @@ def show_answer(answer: Answer, turn: int) -> None:
 
 # -- page ----------------------------------------------------------------------------
 
+user = current_user()  # stops here with a sign-in screen when sign-in is set up and nobody is signed in
+
 if "chat" not in st.session_state:  # first run of this browser session: reopen the chat in the address
-    st.session_state.chat = chat_store().load(st.query_params.get("chat", "")) or Chat()
+    st.session_state.chat = chat_store(chats_folder(user)).load(st.query_params.get("chat", "")) or Chat()
 st.session_state.setdefault("flash", [])
 st.session_state.setdefault("upload_key", 0)
 
@@ -281,23 +358,31 @@ except EmbeddingMismatchError as e:
     st.error(str(e))
     st.stop()
 
-settings = sidebar(store)
+settings = sidebar(store, user)
 for kind, message in st.session_state.flash:
     getattr(st, kind)(message)
 st.session_state.flash = []
 
-if not store.count():
-    st.info("Add a PDF, TXT or MD file in the sidebar to get started.")
+documents = settings["documents"]
+if not documents:
+    st.info("Add a PDF, TXT or MD file in the sidebar to get started." if user.admin
+            else "No documents are shared with you yet. Ask an admin to add you to a group.")
+# Every search goes through the user's documents only; admins (and the local user) see everything.
+scoped = retriever if user.admin else ScopedRetriever(retriever, documents)
 
 chat: Chat = st.session_state.chat
 for i, turn in enumerate(chat.turns):
     st.markdown(f"**{ui.escape_md(turn.question)}**")
+    if not all(user.can_read(h.source) for h in turn.answer.hits):
+        st.caption("This answer used documents you no longer have access to, so it's hidden.")
+        st.divider()
+        continue
     if turn.search != turn.question:
         st.caption(f"Searched for: {ui.escape_md(turn.search)}")
-    show_answer(turn.answer, i)
+    show_answer(turn.answer, i, user)
     st.divider()
 
-if question := st.chat_input("Ask a question about your documents", disabled=not store.count()):
+if question := st.chat_input("Ask a question about your documents", disabled=not documents):
     st.markdown(f"**{ui.escape_md(question)}**")
     search = question
     if chat.turns and is_follow_up(question):
@@ -305,9 +390,9 @@ if question := st.chat_input("Ask a question about your documents", disabled=not
             search = standalone_question(question, chat.history(), backend(settings["provider"]))
         if search != question:
             st.caption(f"Searched for: {ui.escape_md(search)}")
-    answer = ask(search, settings, retriever, validator)
+    answer = ask(search, settings, scoped, validator)
     if answer is not None:
         chat.turns.append(Turn(question, search, answer))
-        chat_store().save(chat)
+        chat_store(chats_folder(user)).save(chat)
         open_chat(chat)
-        show_answer(answer, len(chat.turns) - 1)
+        show_answer(answer, len(chat.turns) - 1, user)

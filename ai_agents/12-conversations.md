@@ -85,5 +85,5 @@ Results (`gemini-3.5-flash-lite`, reranker on, top 5):
 
 - **One rewrite per follow-up costs one more LLM call.** On the Gemini free tier, a chat of many follow-ups uses quota faster.
 - **The check for follow-ups is a heuristic.** An implicit follow-up with no pointing word ("What is the target for the next quarter?") is searched as typed.
-- **Chats are local and single-user:** there are no accounts, so anyone using this computer's browser sees them. That's the next "industry grade" item (login and permissions).
+- **Chats are local and single-user:** there are no accounts, so anyone using this computer's browser sees them. *(Phase 13: with sign-in on, chats are per user; see [13-access.md](13-access.md).)*
 - **The answer doesn't see the conversation,** by design. "Summarise what we discussed" isn't supported.

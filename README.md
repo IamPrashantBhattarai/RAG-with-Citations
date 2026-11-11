@@ -101,6 +101,21 @@ Statements that fail the checks have a yellow background, and hovering shows why
 
 The page only listens on `localhost`, so other devices on your network can't reach it.
 
+## Sign-in and permissions (optional)
+
+Without this, CiteRAG is a single-user tool on your computer. With it, people sign in with Google, only those listed in `access.toml` get in, and each one searches only the documents of their groups.
+
+**How permissions work:** folders under `data/` are groups. `data/hr/…` is for the group `hr`; `data/public/…` is for everyone signed in; files directly in `data/` (in no folder) are for admins only. Admins see everything and are the only ones who can upload, add web pages, remove documents and rescan. Each person's chats are their own.
+
+**Set it up (about 15 minutes):**
+1. In [Google Cloud Console](https://console.cloud.google.com/), open *APIs & Services → OAuth consent screen*. Choose *Internal* if you use Google Workspace, otherwise *External*, and add the people who will sign in as test users. The scopes needed are `openid`, `email` and `profile`.
+2. Go to *Credentials → Create credentials → OAuth client ID*, choose *Web application*, and add the authorised redirect URI `http://localhost:8501/oauth2callback`.
+3. Open `.streamlit/secrets.toml` (created for you, not in git) and paste the **Client ID** and **Client Secret** over the two `PASTE…` values. Everything else is already filled in, including a random cookie secret.
+4. Edit `access.toml` (not in git; see `access.example.toml`): list who may sign in, their groups, and who is an admin.
+5. Restart the app. To move existing documents into group folders, move the files under `data/` and click **Rescan**.
+
+The [Phase 13 build log](ai_agents/13-access.md) explains the design and the leak tests.
+
 ## Using the command line
 
 Every stage can also be run on its own, with the virtual environment active (`source .venv/bin/activate`):
@@ -186,7 +201,9 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 | `citerag/web.py` | Save a web page by URL into `data/`, public addresses only |
 | `citerag/mail.py` | Pull the attachments out of an email, for the loader to read |
 | `citerag/conversation.py` | Rewrite follow-up questions into standalone ones before searching |
-| `citerag/chats.py` | Save and reopen chats (`.chats/`) |
+| `citerag/chats.py` | Save and reopen chats (`.chats/`, one folder per user when sign-in is on) |
+| `citerag/auth.py` | Google sign-in through Streamlit (which verified email is signed in) |
+| `citerag/access.py` | Who may read which documents (`access.toml`), and the search that enforces it |
 | `citerag/chunker.py` | Split pages into chunks with stable IDs |
 | `citerag/store.py` | Embeddings and the ChromaDB index |
 | `citerag/retriever.py` | Hybrid search, reranking, the "not in the documents" cutoff |

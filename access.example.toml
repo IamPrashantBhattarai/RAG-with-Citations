@@ -1,0 +1,20 @@
+# Who can sign in to CiteRAG, and which documents they see. (Phase 13)
+# Copy this file to access.toml (git-ignored: it lists people's emails) and edit it.
+# Used only when Google sign-in is set up in .streamlit/secrets.toml.
+#
+# - Only the email addresses listed here can sign in (as Google verified them).
+# - Folders under data/ are groups: data/hr/policy.pdf belongs to the group "hr".
+# - Everyone signed in can read the "public" group (data/public/).
+# - A member reads the folders of their groups.
+# - An admin reads every document and can add, remove and rescan documents.
+# - Files directly in data/ (in no folder) are visible to admins only.
+#
+# Changes take effect the next time a page loads; no restart needed.
+
+[[users]]
+email = "admin@example.com"
+admin = true
+
+[[users]]
+email = "someone@example.com"
+groups = ["hr", "finance"]

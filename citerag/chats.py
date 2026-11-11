@@ -126,4 +126,4 @@ def answer_from_dict(d: dict) -> Answer:
 
 
 def _now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds")  # orders chats saved in the same second

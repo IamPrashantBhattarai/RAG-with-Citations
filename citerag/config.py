@@ -48,6 +48,9 @@ OCR = os.getenv("CITERAG_OCR", "rapidocr")
 # Read the attachments of emails (.eml/.msg) as part of the email (Phase 11): PDF, Word, PowerPoint,
 # HTML, text and image attachments; inline images and logos are skipped. "0" lists them by name only.
 EMAIL_ATTACHMENTS = os.getenv("CITERAG_EMAIL_ATTACHMENTS", "1") == "1"
+# Who may sign in and what they see (Phase 13). Only used when Google sign-in is set up in
+# .streamlit/secrets.toml; without it the app is a local single-user tool.
+ACCESS_FILE = Path(os.getenv("CITERAG_ACCESS_FILE", ROOT_DIR / "access.toml"))
 # Saved chats (Phase 12): one JSON file per conversation. They quote the documents: keep them private.
 CHATS_DIR = Path(os.getenv("CITERAG_CHATS_DIR", ROOT_DIR / ".chats"))
 # Parsed pages, keyed by file content and parser settings, so unchanged files aren't parsed again.
