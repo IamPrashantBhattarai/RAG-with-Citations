@@ -2,6 +2,22 @@
 
 Newest first. Each entry links to the phase doc with the full reasoning.
 
+## 2026-11-13
+
+### Added — Phase 14: Tests on GitHub ([14-ci.md](14-ci.md))
+- **`.github/workflows/tests.yml` (new):** every push and pull request runs the test suite on `ubuntu-24.04`.
+  - Python 3.12 and uv 0.13.5 via `astral-sh/setup-uv@v10.3.3`.
+  - Package cache keyed on the lock; the ~500 MB of models cached with `actions/cache@v6`.
+  - Read-only permissions, no secrets, 30-minute limit, older runs cancelled, skips listed in the log.
+- **`requirements.lock` (new):** 183 exact versions, identical to the working environment. Universal markers, so the same file works on macOS and Linux. CPU-only PyTorch (`2.14.1+cpu`) on Linux, so no NVIDIA libraries.
+- **Rehearsed locally:** a fresh clone, a fresh environment from the lock and an empty home folder.
+  - Offline: 279 passed, 4 failed (they need models).
+  - Online: **284 passed, 2 skipped** (the private evaluation documents aren't in git), 65 s, 507 MB of models downloaded.
+- README: a tests badge, and the Tests section corrected (it said 191 offline tests).
+
+### System
+- `requirements.lock` added. Install exact versions with `uv pip install -r requirements.lock --torch-backend cpu`.
+
 ## 2026-11-12
 
 ### Setup — Documents sorted into group folders ([13-access.md](13-access.md))

@@ -1,5 +1,7 @@
 # CiteRAG
 
+[![Tests](https://github.com/IamPrashantBhattarai/RAG-with-Citations/actions/workflows/tests.yml/badge.svg)](https://github.com/IamPrashantBhattarai/RAG-with-Citations/actions/workflows/tests.yml)
+
 Ask questions about your own documents and get answers where every statement cites its source: the file, the page, and the exact passage. Each statement is then checked against what it cites, and anything the sources don't support is highlighted.
 
 Add PDFs or notes, ask a question, and click any citation to see the quoted passage and the PDF page it came from. If the documents don't cover the question, it says so instead of guessing.
@@ -215,7 +217,15 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 .venv/bin/python -m pytest
 ```
 
-191 tests, offline. Fake models stand in for the LLM, the embedding model and the NLI model, so no API key or download is needed. The UI tests run the real Streamlit app headless.
+286 tests:
+- **Fakes stand in for most models.** The LLM, sign-in and most of the search and checking models are faked, so no API key is needed. The UI tests run the real Streamlit app headless.
+- **Some tests use real models.** The parsing and OCR tests run Docling and RapidOCR for real, one index test loads the embedding model, and one chunker test loads its tokenizer. They download about 500 MB on the first run and work offline after that.
+- **Two tests read the evaluation documents in `data/`** and are skipped when those aren't there.
+
+**On GitHub** ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)), the tests run on a clean Linux machine for every push and pull request; the badge at the top shows the latest result.
+- The machine installs exactly the versions in [`requirements.lock`](requirements.lock), so it tests what runs locally rather than whatever is newest. To install those versions yourself: `uv pip install --python .venv/bin/python -r requirements.lock --torch-backend cpu`.
+- No secrets are needed.
+- The two document tests are skipped there, because `data/` isn't in git.
 
 ## Project layout
 

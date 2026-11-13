@@ -20,6 +20,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | [11-more-formats.md](11-more-formats.md) | More file formats, one at a time: Word, PowerPoint, HTML and web pages (saved by URL, public addresses only), email with its attachments | ✅ Done |
 | [12-conversations.md](12-conversations.md) | Multi-turn chat: follow-ups rewritten into standalone questions (only when they look like one), chats saved and reopened from the address | ✅ Done |
 | [13-access.md](13-access.md) | Google sign-in and folder-based permissions enforced at search time; per-user chats; leak test | ✅ Done (Google client set up 2026-11-11) |
+| [14-ci.md](14-ci.md) | Tests on GitHub for every push: clean Linux machine, exact versions from `requirements.lock`, CPU-only PyTorch, cached models | 🔧 Built; first GitHub run pending |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
 
@@ -41,6 +42,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | 11 | More file formats (third step): Word, PowerPoint, HTML/web pages, email | ✅ |
 | 12 | Multi-turn chat: follow-ups, saved chats | ✅ |
 | 13 | Sign-in (Google) and permissions (folders = groups) | ✅ |
+| 14 | Tests on GitHub for every push (CI) | 🔧 |
 
 ## Key decisions
 
