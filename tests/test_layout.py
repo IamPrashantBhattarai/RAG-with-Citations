@@ -11,7 +11,9 @@ from docling_core.types.doc import (BoundingBox, DocItemLabel, DoclingDocument, 
 from citerag import config, layout
 from tests.test_loaders import body, make_pdf
 
-FORM = Path(__file__).parent.parent / "data" / "handwriting.pdf"
+DATA = Path(__file__).parent.parent / "data"
+# The scanned test form, wherever it is under data/ (data/hr/ since the Phase 13 folders).
+FORM = next(iter(sorted(DATA.rglob("handwriting.pdf"))), DATA / "handwriting.pdf")
 
 
 @pytest.fixture(autouse=True)
@@ -224,7 +226,7 @@ def test_only_pages_that_are_mostly_a_form_are_written_by_rows():
     assert layout.form_pages(inside)[1].endswith("[x] (1) the first return")
 
 
-@pytest.mark.skipif(not (layout.available() and FORM.is_file()), reason="docling or data/handwriting.pdf missing")
+@pytest.mark.skipif(not (layout.available() and FORM.is_file()), reason="docling or handwriting.pdf (under data/) missing")
 def test_handwritten_form_values_stay_next_to_their_labels():
     [text] = layout.parse_file(FORM, ocr="rapidocr")
     lines = text.split("\n")

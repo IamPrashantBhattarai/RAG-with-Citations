@@ -2,7 +2,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from citerag import config
 from eval.metrics import (
     Evidence,
     Question,
@@ -15,7 +14,7 @@ from eval.metrics import (
     problems,
     retrieval_scores,
 )
-from eval.retrieval import QUESTIONS, chunk_settings, gate_table
+from eval.retrieval import QUESTIONS, chunk_settings, find_documents, gate_table
 
 TEXT = "Exam rules.\nFull  Marks: 100,\nPass Marks: 45. There won’t be any re-exam."
 
@@ -113,6 +112,20 @@ def test_gate_table_counts_each_kind():
     assert by_kind == {"answerable": [0.6], "unanswerable": [0.44], "off_topic": [0.46]}
 
 
+def test_evaluation_documents_are_found_in_group_folders(tmp_path):
+    (tmp_path / "hr").mkdir()
+    (tmp_path / ".trash").mkdir()
+    (tmp_path / "a.pdf").write_text("x")
+    (tmp_path / "hr" / "b.docx").write_text("x")
+    (tmp_path / ".trash" / "b.docx").write_text("x")  # hidden folders are skipped, as in a rescan
+    assert find_documents("a.pdf", tmp_path) == [tmp_path / "a.pdf"]
+    assert find_documents("b.docx", tmp_path) == [tmp_path / "hr" / "b.docx"]
+    assert find_documents("c.pdf", tmp_path) == []
+    (tmp_path / "public").mkdir()
+    (tmp_path / "public" / "b.docx").write_text("x")
+    assert len(find_documents("b.docx", tmp_path)) == 2  # ambiguous: load_documents refuses it
+
+
 def test_chunk_settings_keep_the_default_proportions():
     assert chunk_settings(384) == (384, 64, 96)
 
@@ -206,7 +219,7 @@ def test_question_set_is_well_formed():
 
 def test_every_quote_is_found_in_the_documents():
     documents, questions = load_questions(QUESTIONS)
-    if not all((config.DATA_DIR / d).is_file() for d in documents):
+    if not all(find_documents(d) for d in documents):  # anywhere under data/, group folders too
         pytest.skip("evaluation documents not in data/")
     from eval.retrieval import load_documents
 

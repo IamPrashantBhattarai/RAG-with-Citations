@@ -2,6 +2,22 @@
 
 Newest first. Each entry links to the phase doc with the full reasoning.
 
+## 2026-11-12
+
+### Setup — Documents sorted into group folders ([13-access.md](13-access.md))
+- `data/` is now in three folders:
+  - `hr/`: the leave policy and the handwritten form
+  - `finance/`: the Q3 review and the office lease email
+  - `public/`: the papers, the syllabus, the WWII PDF and the three web pages
+- Rescanned: all 11 documents are indexed under their folder names (162 chunks). The index had held only the Transformer paper.
+- Checked with the real `access.toml` on the real index:
+  - the admin and the hr + finance member find all 11 documents
+  - the public-only account finds the 7 public ones and nothing from hr or finance
+  - no account got a passage it may not read
+- **Fixed:** the eval scripts now find a document by name in any folder under `data/` (`eval.retrieval.find_documents`). Before, they stopped with "Missing from data/". Sources in the eval index stay bare file names, so results stay comparable.
+- **Fixed:** two tests were silently skipped after the move: the quote check on the question set and the Phase 10 handwritten-form OCR test. Both run again.
+- Tests: +1 `test_eval.py`. 286 passing, none skipped.
+
 ## 2026-11-11
 
 ### Fixed — Broken sign-in settings fail closed ([13-access.md](13-access.md#broken-sign-in-settings-now-fail-closed-2026-11-11))

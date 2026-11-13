@@ -50,14 +50,35 @@ def chunk_settings(size: int) -> tuple[int, int, int]:
     return size, round(size / 6), size // 4
 
 
+def find_documents(name: str, root: Path | None = None) -> list[Path]:
+    """Every file called `name` under data/: directly in it, or in a group folder (Phase 13).
+
+    The question set names documents by file name. Since documents can be sorted into
+    group folders (data/hr/…), the name is looked up in every folder. Hidden folders
+    are skipped, as the app's rescan skips them. More than one match is ambiguous.
+    """
+    root = Path(root or config.DATA_DIR)
+    return sorted(p for p in root.rglob("*")
+                  if p.name == name and p.is_file()
+                  and not any(part.startswith(".") for part in p.relative_to(root).parts))
+
+
 def load_documents(names: list[str]) -> tuple[list[Page], dict[str, str]]:
-    """Pages of the evaluation documents, and each one's text as the chunker joins it."""
-    missing = [n for n in names if not (config.DATA_DIR / n).is_file()]
+    """Pages of the evaluation documents, and each one's text as the chunker joins it.
+
+    Each document keeps its bare file name as its source, wherever its folder is, so
+    the question set's names, quotes and permission profiles keep matching.
+    """
+    found = {n: find_documents(n) for n in names}
+    missing = [n for n, paths in found.items() if not paths]
     if missing:
         sys.exit(f"Missing from {config.DATA_DIR}: {', '.join(missing)}")
+    twice = [n for n, paths in found.items() if len(paths) > 1]
+    if twice:
+        sys.exit(f"In more than one folder of {config.DATA_DIR}: {', '.join(twice)}")
     pages, texts = [], {}
     for name in names:
-        doc = sorted((p for p in load_file(config.DATA_DIR / name) if p.text.strip()),
+        doc = sorted((p for p in load_file(found[name][0]) if p.text.strip()),
                      key=lambda p: p.page)  # as Chunker.chunk_document does
         pages.extend(doc)
         texts[name] = _join_pages(doc)[0]

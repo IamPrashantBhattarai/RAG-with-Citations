@@ -1,6 +1,6 @@
 # Phase 13 — Sign-in and permissions
 
-**Status:** ✅ Done (2026-11-11). The user's Google OAuth client and test users were set up the same day (Step 3) · Code: `citerag/auth.py` (new), `citerag/access.py` (new), `citerag/chats.py`, `citerag/config.py`, `app.py`; `access.example.toml`, `eval/permissions.py` (new) · Tests: `tests/test_access.py` (14), `tests/test_auth.py` (9), +7 `tests/test_ui.py`; 285 passing in total
+**Status:** ✅ Done (2026-11-11). The user's Google OAuth client and test users were set up the same day (Step 3) · Code: `citerag/auth.py` (new), `citerag/access.py` (new), `citerag/chats.py`, `citerag/config.py`, `app.py`; `access.example.toml`, `eval/permissions.py` (new) · Tests: `tests/test_access.py` (14), `tests/test_auth.py` (9), +7 `tests/test_ui.py`, +1 `tests/test_eval.py`; 286 passing in total
 
 **Outcome in one line:** with Google sign-in set up, only the people listed in `access.toml` get in, each searches only the documents in their groups' folders (enforced at search time, before anything reaches the LLM), only admins manage documents, and chats are per user. On the real search stack, 504 searches by restricted users returned 0 passages they may not read.
 
@@ -79,6 +79,34 @@ What came up along the way:
 - **The first paste lost the closing quote of `client_id`,** so `secrets.toml` wasn't valid TOML. It was found with a script that reports each setting as set, placeholder or missing without printing any value, and that compares the values with the client file Google gave.
 - **Checked:** the app's sign-in request goes to `accounts.google.com` with redirect `http://localhost:8501/oauth2callback` and scopes `openid email profile`.
 - The README now has the steps with Google's current menu names and a troubleshooting table.
+
+**Documents sorted into group folders (2026-11-12).** Until then every file sat directly in `data/`, so only admins could read them. The user approved this sort:
+
+| Folder | Files |
+|---|---|
+| `hr/` | `leave-and-travel-policy.docx`, `handwriting.pdf` (the handwritten form) |
+| `finance/` | `q3-business-review.pptx`, `pokhara-office-lease.eml` |
+| `public/` | the Transformer and Vision Transformer papers, the WWII PDF, the Web Technology syllabus, the two saved web pages, `rooftop-solar-guide.html` |
+
+- **Rescan** (`python -m citerag.store data/ --prune`, the same as the sidebar button) took 12 s, since parsing was cached.
+  - The index had held only the Transformer paper; the other 10 files had been taken out of the index earlier.
+  - It now holds all 11 under their folder names (162 chunks), and the old folder-less entry was removed.
+- **Checked on the real index with the real `access.toml`:** four questions searched as each account (one about the hr folder, two about finance, one about a public paper), through the same search as the app.
+
+| Account | Can read | hr question | finance questions | public question | Passages it may not read |
+|---|---|---|---|---|---|
+| admin | 11/11 | hr/ | finance/ | public/ | 0 |
+| member of hr + finance | 11/11 | hr/ | finance/ | public/ | 0 |
+| no groups (public only) | 7/11 | nothing found | one found nothing; one got unrelated public passages | public/ | 0 |
+
+**Two things the move broke, both found and fixed:**
+- **The eval scripts looked up documents directly in `data/<name>`.** All five go through `eval.retrieval.load_documents`, which would have stopped with "Missing from data/". The new `find_documents(name)` finds the file in any folder under `data/`, skipping hidden folders as a rescan does. A name found in two folders is refused as ambiguous.
+  - Each document still keeps its bare file name as its source in the eval's own index (`eval/.cache/`). So the question set, its quotes and the permission profiles still match, and earlier results stay comparable.
+- **Two tests would have been skipped without anyone noticing.**
+  - `test_every_quote_is_found_in_the_documents` had a skip check that looked only directly in `data/`.
+  - `test_handwritten_form_values_stay_next_to_their_labels` (Phase 10 OCR) had `data/handwriting.pdf` hard-coded, and the full run showed "1 skipped".
+  - Both now look under `data/` at any depth, and both run again.
+- Tests: +1 `test_eval.py` (a document found in a group folder; hidden folders skipped; two matches reported). 286 passing, none skipped.
 
 ## Step 4 — Evaluation: does anything leak?
 
