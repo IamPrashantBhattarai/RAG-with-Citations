@@ -69,7 +69,7 @@ class FakeRetriever:
     def __init__(self, hits):
         self.hits, self.calls = hits, []
 
-    def retrieve(self, question, k, sources):
+    def retrieve(self, question, k, sources, held_back=None):
         self.calls.append((question, k, sources))
         return self.hits
 

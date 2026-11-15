@@ -19,13 +19,15 @@ from pathlib import Path
 
 import streamlit as st
 
-from citerag import auth, config, ui, web
-from citerag.access import LOCAL_USER, PUBLIC, AccessError, Policy, ScopedRetriever, User, group_of
+from citerag import auth, config, privacy, ui, web
+from citerag.access import (LOCAL_USER, PUBLIC, AccessError, Policy, Registrations, ScopedRetriever, User, group_of,
+                            toml_entry)
 from citerag.chats import Chat, ChatStore, Turn
 from citerag.conversation import is_follow_up, standalone_question
 from citerag.generator import Answer, GenerationError, Generator, make_backend, pages_label
 from citerag.loaders import SUPPORTED_EXTENSIONS, LoaderError, load_dir, load_file
 from citerag.retriever import Retriever
+from citerag.screen import default_screener
 from citerag.store import EmbeddingMismatchError, Store
 from citerag.validator import Validator
 
@@ -42,7 +44,7 @@ st.set_page_config(page_title="CiteRAG")
 
 @st.cache_resource(show_spinner="Loading the index and models (first run only)…")
 def pipeline():
-    store = Store()
+    store = Store(screener=default_screener())  # new and changed files are screened for prompt injection (Phase 15)
     retriever = Retriever(store)
     validator = Validator()
     # Load the models now, not during the first question. Assigned, because
@@ -113,7 +115,7 @@ def current_user() -> User:
         st.button("Sign in with Google", type="primary", on_click=auth.sign_in)
         st.stop()
     try:
-        user = policy().user(email)
+        user = policy().resolve(email)  # with open registration, an unlisted email is a public user
     except AccessError as e:
         st.title("CiteRAG")
         st.error(f"Sign-in is set up, but the access list has a problem: {e}")
@@ -124,7 +126,48 @@ def current_user() -> User:
         st.error(f"{email} isn't on the access list. Ask an admin to add you.")
         st.button("Sign out", on_click=auth.sign_out)
         st.stop()
+    if st.session_state.get("signed_in_as") != email:  # once per browser session, not on every rerun
+        Registrations().seen(email)
+        st.session_state.signed_in_as = email
     return user
+
+
+def masker(user: User):
+    """How private values are shown to this user: masked for signed-in non-admins (Phase 15)."""
+    return privacy.mask if config.MASK_PRIVATE and not user.admin else None
+
+
+def held_back_passages(flagged: list) -> None:
+    """Admins: the passages kept from the model because they look like instructions to it (Phase 15)."""
+    n = len(flagged)
+    st.warning(f"{n} passage{'s' * (n != 1)} held back from answers: {'they look' if n != 1 else 'it looks'} "
+               "like instructions to the AI. Check the file; if it's a false alarm, the passage can be reworded.")
+    with st.expander("Show held-back passages"):
+        for h in flagged:
+            pages = pages_label(h.source, h.page_start, h.page_end)
+            st.markdown(f"**{ui.escape_md(h.source)}**" + (f", {pages}" if pages else "")
+                        + f"  \n:gray[{ui.escape_md(h.screen)}]")
+            st.text(h.text if len(h.text) <= 800 else h.text[:800] + " …")
+
+
+def waiting_users() -> None:
+    """Admins: people who signed up through open registration and are still public users."""
+    try:
+        pol = policy()
+    except AccessError:
+        return
+    waiting = Registrations().unlisted(pol)
+    if not waiting:
+        return
+    with st.expander(f"Registered, public only ({len(waiting)})"):
+        st.caption("They can read the public documents. To give someone a group, paste their block into "
+                   "access.toml and fill in the groups; it applies on their next page load.")
+        for email, seen in waiting:
+            st.markdown(f"{ui.escape_md(email)}  \n:gray[first signed in {seen.get('first', '?')[:10]}, "
+                        f"last {seen.get('last', '?')[:10]}]")
+            st.code(toml_entry(email), language="toml")
+    if not pol.open_registration:
+        st.caption("Open registration is off, so they can't sign in until they're listed.")
 
 
 def chats_folder(user: User) -> str:
@@ -138,14 +181,20 @@ def chats_folder(user: User) -> str:
 def sidebar(store: Store, user: User) -> dict:
     with st.sidebar:
         if user is not LOCAL_USER:
-            st.caption(f"Signed in as {ui.escape_md(user.email)}" + (" · admin" if user.admin else ""))
+            role = " · admin" if user.admin else "" if user.listed else " · public documents only"
+            st.caption(f"Signed in as {ui.escape_md(user.email)}{role}")
+            if not user.listed:
+                st.caption("You can read the public documents. An admin can add you to a group for more.")
             st.button("Sign out", on_click=auth.sign_out, width="stretch")
             st.divider()
         st.subheader("Documents")
         docs = {name: n for name, n in store.sources().items() if user.can_read(name)}
+        flagged = store.quarantined() if user.admin else []
+        held = {name: sum(h.source == name for h in flagged) for name in docs}
         for name, chunks in docs.items():
             left, right = st.columns([6, 1], vertical_alignment="center")
-            left.markdown(f"{ui.escape_md(name)}  \n:gray[{chunks} chunk{'s' * (chunks != 1)}]")
+            note = f" · {held[name]} held back" if held.get(name) else ""
+            left.markdown(f"{ui.escape_md(name)}  \n:gray[{chunks} chunk{'s' * (chunks != 1)}{note}]")
             if user.admin and right.button("", key=f"remove-{name}", icon=":material/close:", type="tertiary",
                                            help=f"Remove from the index (the file stays in {config.DATA_DIR.name}/)"):
                 store.delete_source(name)
@@ -153,6 +202,10 @@ def sidebar(store: Store, user: User) -> dict:
                 st.rerun()
         if not docs:
             st.caption("No documents indexed yet." if user.admin else "No documents are shared with you yet.")
+        if flagged:
+            held_back_passages(flagged)
+        if user.admin and user is not LOCAL_USER:
+            waiting_users()
         if user.admin:
             manage_documents(store, user)
 
@@ -277,7 +330,7 @@ def rescan(store: Store) -> None:
 # -- answers -------------------------------------------------------------------------
 
 
-def ask(question: str, settings: dict, retriever, validator: Validator) -> Answer | None:
+def ask(question: str, settings: dict, retriever, validator: Validator, mask=None) -> Answer | None:
     generator = Generator(retriever, backend(settings["provider"]), validator,
                           validate=settings["validate"], strict=settings["strict"])
     placeholder = st.empty()
@@ -286,7 +339,10 @@ def ask(question: str, settings: dict, retriever, validator: Validator) -> Answe
 
     def on_text(piece: str) -> None:
         shown.append(piece)
-        placeholder.markdown(ui.streaming_markdown("".join(shown)) + " ▌")
+        text = "".join(shown)
+        if mask:  # a number still arriving can't be recognised yet, so it waits for the next piece
+            text = mask(privacy.streaming_safe(text))
+        placeholder.markdown(ui.streaming_markdown(text) + " ▌")
 
     wait = st.spinner("Writing and checking the answer…") if settings["strict"] else nullcontext()
     try:
@@ -302,9 +358,19 @@ def ask(question: str, settings: dict, retriever, validator: Validator) -> Answe
 
 
 def show_answer(answer: Answer, turn: int, user: User) -> None:
-    st.markdown(ui.answer_markdown(answer), unsafe_allow_html=True)
+    mask = masker(user)
+    st.markdown(ui.answer_markdown(answer, mask=mask), unsafe_allow_html=True)
     if line := ui.summary_line(answer):
         st.caption(line)
+    if found := privacy.find_private(answer.text):
+        how = ", masked" if mask else ", masked for members" if user is not LOCAL_USER and config.MASK_PRIVATE else ""
+        st.caption(f"This answer contains private data ({privacy.summary(found)}){how}.")
+    if answer.held_back:
+        places = sorted({ui.escape_md(h["source"]) + (f", {p}" if (p := pages_label(h["source"], h["page_start"], h["page_end"])) else "")
+                         for h in answer.held_back})
+        n = len(answer.held_back)
+        st.caption(f"{n} passage{'s' * (n != 1)} held back from the model because {'they look' if n != 1 else 'it looks'} "
+                   f"like instructions to the AI: {'; '.join(places)}.")
 
     hits = {h.chunk_id: h for h in answer.hits}
     for c in answer.citations:
@@ -312,7 +378,7 @@ def show_answer(answer: Answer, turn: int, user: User) -> None:
             if c.section:
                 st.caption(f"Section: {ui.escape_md(c.section)}")
             if c.chunk_id in hits:
-                st.markdown(ui.passage_html(hits[c.chunk_id].text, c.start_char, c.end_char),
+                st.markdown(ui.passage_html(hits[c.chunk_id].text, c.start_char, c.end_char, mask=mask),
                             unsafe_allow_html=True)
             if not user.can_read(c.source):
                 continue
@@ -323,7 +389,7 @@ def show_answer(answer: Answer, turn: int, user: User) -> None:
             if image is not None and st.toggle("Show image", key=f"img-{turn}-{c.number}"):
                 st.image(str(image))
 
-    if answer.validation is not None and (lines := ui.check_lines(answer.validation)):
+    if answer.validation is not None and (lines := ui.check_lines(answer.validation, mask=mask)):
         with st.expander("Checks"):
             st.markdown("\n\n".join(lines))
             if answer.validation.invalid_markers:
@@ -384,8 +450,8 @@ for i, turn in enumerate(chat.turns):
         st.caption("This answer used documents you no longer have access to, so it's hidden.")
         st.divider()
         continue
-    if turn.search != turn.question:
-        st.caption(f"Searched for: {ui.escape_md(turn.search)}")
+    if turn.search != turn.question:  # a rewritten follow-up can carry a number from an earlier answer
+        st.caption(f"Searched for: {ui.escape_md((masker(user) or str)(turn.search))}")
     show_answer(turn.answer, i, user)
     st.divider()
 
@@ -396,8 +462,8 @@ if question := st.chat_input("Ask a question about your documents", disabled=not
         with st.spinner("Reading the follow-up…"):
             search = standalone_question(question, chat.history(), backend(settings["provider"]))
         if search != question:
-            st.caption(f"Searched for: {ui.escape_md(search)}")
-    answer = ask(search, settings, scoped, validator)
+            st.caption(f"Searched for: {ui.escape_md((masker(user) or str)(search))}")
+    answer = ask(search, settings, scoped, validator, mask=masker(user))
     if answer is not None:
         chat.turns.append(Turn(question, search, answer))
         chat_store(chats_folder(user)).save(chat)

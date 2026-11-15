@@ -6,6 +6,7 @@ import pytest
 
 from citerag.chunker import Chunker
 from citerag.loaders import Page
+from citerag.screen import Verdict
 from citerag.store import Embedder, EmbeddingMismatchError, Store
 
 
@@ -36,10 +37,23 @@ def words(texts):
     return [len(t.split()) for t in texts]
 
 
-def make_store(tmp_path, embedder=None, **chunker_kw):
+def make_store(tmp_path, embedder=None, screener=None, **chunker_kw):
     chunker = Chunker(**{"chunk_size": 40, "overlap": 10, "min_tokens": 8, **chunker_kw},
                       count_tokens=words)
-    return Store(tmp_path / "db", "test-index", embedder or FakeEmbedder(), chunker)
+    return Store(tmp_path / "db", "test-index", embedder or FakeEmbedder(), chunker, screener=screener)
+
+
+class FlagScreener:
+    """Quarantines every chunk containing `word` (Phase 15). No model."""
+
+    def __init__(self, word="Magma", version=1):
+        self.word, self.version = word, version
+
+    def settings(self):
+        return ("flag", self.word, self.version)
+
+    def check(self, texts):
+        return [Verdict(True, "rule: test") if self.word in t else Verdict(False) for t in texts]
 
 
 PAGES = [
@@ -151,3 +165,19 @@ def test_embedder_prefixes_queries_only_and_normalizes():
     vec = emb.embed_query("question")
     assert emb._model.seen == ["Q: question"]
     assert vec.dtype == np.float32 and np.allclose(vec, 0.5)
+
+
+def test_screened_chunks_are_stored_quarantined_and_listed(tmp_path):
+    store = make_store(tmp_path, screener=FlagScreener("Magma"))
+    store.index(PAGES)
+    [flagged] = store.quarantined()
+    assert flagged.source == "geo.md" and flagged.quarantined and flagged.screen == "rule: test"
+    assert not any(h.quarantined for h in store.all_chunks() if h.source == "bio.pdf")
+    assert store.query("magma lava crust", k=1)[0].quarantined  # still searchable; the retriever drops it
+
+
+def test_changing_the_screen_screens_every_file_again(tmp_path):
+    make_store(tmp_path, screener=FlagScreener(version=1)).index(PAGES)
+    report = make_store(tmp_path, screener=FlagScreener(version=2)).index(PAGES)
+    assert sorted(report.updated) == ["bio.pdf", "geo.md"]
+    assert make_store(tmp_path, screener=FlagScreener(version=2)).index(PAGES).updated == []

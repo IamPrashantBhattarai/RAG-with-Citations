@@ -34,6 +34,7 @@ import numpy as np
 from citerag import config
 from citerag.chunker import CHUNKER_VERSION, Chunk, Chunker
 from citerag.loaders import Page, load_paths
+from citerag.screen import Screener, Verdict, default_screener
 
 log = logging.getLogger(__name__)
 
@@ -136,6 +137,8 @@ class Hit:
     end_char: int
     score: float  # cosine similarity here; the retriever replaces it with its final score
     scores: dict[str, float] = field(default_factory=dict)  # per-stage scores (debugging)
+    quarantined: bool = False  # flagged as a prompt injection when indexed: never sent to the LLM (Phase 15)
+    screen: str = ""  # why it was flagged, for admins
 
 
 @dataclass
@@ -155,13 +158,19 @@ class Store:
         embedder: TextEmbedder | None = None,
         chunker: Chunker | None = None,
         reset: bool = False,
+        screener: Screener | None = None,
     ):
-        """`reset=True` drops the index before opening it (the way to switch models)."""
+        """`reset=True` drops the index before opening it (the way to switch models).
+
+        With a `screener`, every chunk is screened for prompt injection when it is
+        indexed (Phase 15); without one, nothing is quarantined.
+        """
         import chromadb
         from chromadb.config import Settings
 
         self.embedder = embedder or Embedder()
         self.chunker = chunker or Chunker()
+        self.screener = screener
         self._client = chromadb.PersistentClient(
             path=str(path), settings=Settings(anonymized_telemetry=False)
         )
@@ -209,10 +218,14 @@ class Store:
                 continue
             chunks = self.chunker.chunk_document(doc_pages)
             vectors = self.embedder.embed_documents([c.embed_text for c in chunks])
+            verdicts = self.screener.check([c.text for c in chunks]) if self.screener else [Verdict(False)] * len(chunks)
+            for c, v in zip(chunks, verdicts):
+                if v.quarantined:
+                    log.warning("%s: a passage looks like instructions to the AI (%s); quarantined", source, v.reason)
             # Delete only after embedding succeeded, so a failure keeps the old version.
             if old_ids:
                 self._col.delete(ids=old_ids)
-            self._upsert(chunks, vectors, fingerprint)
+            self._upsert(chunks, vectors, fingerprint, verdicts)
             (report.updated if old_ids else report.added).append(source)
             report.chunks += len(chunks)
             self.version += 1
@@ -242,7 +255,8 @@ class Store:
         if self._name in {c.name for c in self._client.list_collections()}:
             self._client.delete_collection(self._name)
 
-    def _upsert(self, chunks: list[Chunk], vectors: np.ndarray, fingerprint: str) -> None:
+    def _upsert(self, chunks: list[Chunk], vectors: np.ndarray, fingerprint: str,
+                verdicts: list[Verdict]) -> None:
         batch = self._client.get_max_batch_size()
         for i in range(0, len(chunks), batch):
             part = chunks[i : i + batch]
@@ -250,7 +264,7 @@ class Store:
                 ids=[c.id for c in part],
                 embeddings=vectors[i : i + batch],
                 documents=[c.text for c in part],
-                metadatas=[_metadata(c, fingerprint) for c in part],
+                metadatas=[_metadata(c, fingerprint, v) for c, v in zip(part, verdicts[i : i + batch])],
             )
 
     def _fingerprint(self, pages: list[Page]) -> str:
@@ -263,6 +277,7 @@ class Store:
             self.chunker.overlap,
             self.chunker.min_tokens,
             CHUNKER_VERSION,
+            self.screener.settings() if self.screener else "screen off",  # re-screen when the screen changes
         )
         h.update(repr(settings).encode())
         for p in sorted(pages, key=lambda p: p.page):
@@ -307,6 +322,12 @@ class Store:
             for cid, doc, meta in zip(res["ids"], res["documents"], res["metadatas"])
         ]
 
+    def quarantined(self) -> list[Hit]:
+        """Chunks flagged as prompt injections, by file and position (for the admin warning)."""
+        res = self._col.get(where={"quarantined": True}, include=["documents", "metadatas"])
+        hits = [_hit(cid, doc, meta, 1.0) for cid, doc, meta in zip(res["ids"], res["documents"], res["metadatas"])]
+        return sorted(hits, key=lambda h: (h.source, h.start_char))
+
     def count(self) -> int:
         return self._col.count()
 
@@ -318,7 +339,7 @@ class Store:
         return dict(sorted(counts.items()))
 
 
-def _metadata(c: Chunk, fingerprint: str) -> dict:
+def _metadata(c: Chunk, fingerprint: str, verdict: Verdict) -> dict:
     meta = {
         "source": c.source,
         "page_start": c.page_start,
@@ -327,9 +348,12 @@ def _metadata(c: Chunk, fingerprint: str) -> dict:
         "end_char": c.end_char,
         "n_tokens": c.n_tokens,
         "fingerprint": fingerprint,
+        "quarantined": verdict.quarantined,
     }
     if c.section:  # Chroma metadata can't hold None
         meta["section"] = c.section
+    if verdict.reason:
+        meta["screen"] = verdict.reason
     return meta
 
 
@@ -344,6 +368,8 @@ def _hit(chunk_id: str, text: str, meta: dict, distance: float) -> Hit:
         start_char=meta["start_char"],
         end_char=meta["end_char"],
         score=1.0 - distance,
+        quarantined=bool(meta.get("quarantined", False)),
+        screen=meta.get("screen", ""),
     )
 
 
@@ -364,7 +390,7 @@ def _main() -> None:
     for name in ("citerag", "__main__"):  # "__main__" when run with python -m
         logging.getLogger(name).setLevel(logging.INFO)
 
-    store = Store(reset=args.reset)
+    store = Store(reset=args.reset, screener=default_screener() if args.paths else None)
     if args.reset:
         print("index reset")
     if args.paths:

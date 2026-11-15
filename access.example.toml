@@ -2,7 +2,8 @@
 # Copy this file to access.toml (git-ignored: it lists people's emails) and edit it.
 # Used only when Google sign-in is set up in .streamlit/secrets.toml.
 #
-# - Only the email addresses listed here can sign in (as Google verified them).
+# - Only the email addresses listed here can sign in (as Google verified them),
+#   unless open_registration (below) is true.
 # - Folders under data/ are groups: data/hr/policy.pdf belongs to the group "hr".
 # - Everyone signed in can read the "public" group (data/public/).
 # - A member reads the folders of their groups.
@@ -10,6 +11,13 @@
 # - Files directly in data/ (in no folder) are visible to admins only.
 #
 # Changes take effect the next time a page loads; no restart needed.
+
+# Open registration: anyone with a Google account can sign up, and someone not
+# listed below gets in as a public user (data/public/ only) until listed with groups.
+# Admins see who signed up under "Registered, public only" in the sidebar.
+# With Google's app in "Testing", only its test users can sign in at all:
+# publish the app (Google Auth Platform > Audience) to open it.
+open_registration = false
 
 [[users]]
 email = "admin@example.com"

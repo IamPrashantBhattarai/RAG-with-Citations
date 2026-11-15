@@ -10,6 +10,11 @@ access.toml lists who may sign in, their groups, and who is an admin:
 - a file directly in data/, in no folder, is read by admins only: nobody
   decided who should see it, so nobody but admins does
 
+With `open_registration = true` in access.toml, anyone with a Google account
+can sign in: an email that isn't listed gets in as a public user (data/public/
+only) until an admin lists it with groups. Every sign-in is recorded in a small
+local file (Registrations), so admins can see who is waiting to be promoted.
+
 Permissions are enforced where a document's text could leave the index: every
 search goes through ScopedRetriever, which filters to the user's documents
 before the LLM or the page sees anything, and checks each result again after.
@@ -19,10 +24,14 @@ An empty set of documents means "nothing", never "no filter".
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import os
 import re
+import threading
 import tomllib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from citerag import config
@@ -33,6 +42,7 @@ PUBLIC = "public"
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 _GROUP_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]*")
 _USER_KEYS = {"email", "admin", "groups"}
+_SETTINGS = {"users", "open_registration"}
 
 
 class AccessError(Exception):
@@ -44,6 +54,7 @@ class User:
     email: str
     admin: bool = False
     groups: frozenset[str] = frozenset()
+    listed: bool = True  # False: signed up through open registration, not in access.toml yet
 
     def can_read(self, source: str) -> bool:
         group = group_of(source)
@@ -71,12 +82,23 @@ def group_of(source: str) -> str | None:
 
 
 class Policy:
-    def __init__(self, users: list[User]):
+    def __init__(self, users: list[User], open_registration: bool = False):
         self.users = {u.email: u for u in users}
+        self.open_registration = open_registration
 
     def user(self, email: str | None) -> User | None:
-        """The listed user with this email (case doesn't matter), or None: not allowed in."""
+        """The listed user with this email (case doesn't matter), or None."""
         return self.users.get((email or "").strip().lower())
+
+    def resolve(self, email: str | None) -> User | None:
+        """Who this (Google-verified) email signs in as: the listed user; with open
+        registration, an unlisted email as a public user; otherwise None, not allowed in."""
+        if listed := self.user(email):
+            return listed
+        email = (email or "").strip().lower()
+        if self.open_registration and _EMAIL_RE.fullmatch(email):
+            return User(email, listed=False)
+        return None
 
     @classmethod
     def load(cls, path: Path | None = None) -> Policy:
@@ -105,9 +127,60 @@ class Policy:
             if email in {u.email for u in users}:
                 raise AccessError(f"{where}: {email} is listed twice")
             users.append(User(email, admin, frozenset(groups)))
-        if set(data) - {"users"}:
-            raise AccessError(f"{path.name}: unknown setting {sorted(set(data) - {'users'})[0]!r}")
-        return cls(users)
+        if set(data) - _SETTINGS:
+            raise AccessError(f"{path.name}: unknown setting {sorted(set(data) - _SETTINGS)[0]!r}")
+        open_registration = data.get("open_registration", False)
+        if not isinstance(open_registration, bool):
+            raise AccessError(f"{path.name}: open_registration must be true or false")
+        return cls(users, open_registration)
+
+
+class Registrations:
+    """Who has signed in, and when: each email's first and last sign-in.
+
+    A small JSON file (git-ignored: it lists people's emails), rewritten
+    atomically. Admins use it to see who signed up through open registration
+    and is still a public user. A file that can't be read or written never
+    stops anyone signing in.
+    """
+
+    _lock = threading.Lock()  # Streamlit sessions are threads of one process
+
+    def __init__(self, path: Path | None = None):
+        self.path = Path(path or config.REGISTRATIONS_FILE)
+
+    def all(self) -> dict[str, dict]:
+        try:
+            data = json.loads(self.path.read_text())
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as e:
+            log.warning("%s can't be read (%s); starting a new one", self.path.name, e)
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def seen(self, email: str) -> None:
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._lock:
+            data = self.all()
+            data[email] = {"first": (data.get(email) or {}).get("first", now), "last": now}
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
+                tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
+                tmp.replace(self.path)
+            except OSError as e:
+                log.warning("couldn't record the sign-in of a user in %s (%s)", self.path.name, e)
+
+    def unlisted(self, policy: Policy) -> list[tuple[str, dict]]:
+        """Signed-up users not in access.toml yet (public only), newest first."""
+        waiting = [(email, e) for email, e in self.all().items() if policy.user(email) is None]
+        return sorted(waiting, key=lambda item: item[1].get("first", ""), reverse=True)
+
+
+def toml_entry(email: str) -> str:
+    """The access.toml block that lists a signed-up user, ready to paste."""
+    return f'[[users]]\nemail = "{email}"\ngroups = []   # their folders under data/, e.g. ["hr"]'
 
 
 class ScopedRetriever:
@@ -122,15 +195,19 @@ class ScopedRetriever:
         self.retriever = retriever
         self.allowed = frozenset(allowed)
 
-    def retrieve(self, query: str, k: int = config.TOP_K, sources: list[str] | None = None):
+    def retrieve(self, query: str, k: int = config.TOP_K, sources: list[str] | None = None,
+                 held_back: list | None = None):
         wanted = self.allowed if sources is None else self.allowed & set(sources)
         if not wanted:
             return []
-        hits = self.retriever.retrieve(query, k=k, sources=sorted(wanted))
+        inner_held: list = []
+        hits = self.retriever.retrieve(query, k=k, sources=sorted(wanted), held_back=inner_held)
         kept = [h for h in hits if h.source in wanted]
         if len(kept) < len(hits):  # the filter above should make this impossible
             log.error("search returned %d passage(s) outside the user's documents; dropped",
                       len(hits) - len(kept))
+        if held_back is not None:  # even a held-back note must not name a document the user can't read
+            held_back.extend(h for h in inner_held if h.source in wanted)
         return kept
 
     def __getattr__(self, name):  # store, reranker, ... as the wrapped retriever

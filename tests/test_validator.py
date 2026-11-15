@@ -266,7 +266,7 @@ class FakeBackend:
 
 
 class FakeRetriever:
-    def retrieve(self, question, k, sources):
+    def retrieve(self, question, k, sources, held_back=None):
         return HITS
 
 

@@ -112,6 +112,9 @@ class Answer:
     usage: dict = field(default_factory=dict)
     invalid_markers: list[int] = field(default_factory=list)  # [n] with no such excerpt (dropped)
     validation: Validation | None = None  # Phase 6 checks, when enabled
+    # Passages that ranked among the best but were kept from the model because they
+    # were flagged as prompt injections (Phase 15): {"source", "page_start", "page_end"}.
+    held_back: list[dict] = field(default_factory=list)
 
 
 class Backend(Protocol):
@@ -166,12 +169,15 @@ class Generator:
         generated and a "[n]" marker as each citation arrives. In strict mode
         nothing streams; `on_text` gets the checked answer once, at the end.
         """
-        hits = self.retriever.retrieve(question, k=k, sources=sources)
+        held: list[Hit] = []
+        hits = self.retriever.retrieve(question, k=k, sources=sources, held_back=held)
+        held_back = [{"source": h.source, "page_start": h.page_start, "page_end": h.page_end} for h in held]
         if not hits:
             if on_text:
                 on_text(NOT_FOUND)
-            return Answer(question, NOT_FOUND, [Segment(NOT_FOUND)], [], [], found=False)
+            return Answer(question, NOT_FOUND, [Segment(NOT_FOUND)], [], [], found=False, held_back=held_back)
         answer = self.backend.generate(question, hits, None if self.strict else on_text)
+        answer.held_back = held_back
         if self.validate:
             answer.validation = self.validator.validate(answer)
         if self.strict:

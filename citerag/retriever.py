@@ -185,13 +185,18 @@ class Retriever:
         self._bm25_key: tuple[int, int] | None = None
 
     def retrieve(
-        self, query: str, k: int = config.TOP_K, sources: list[str] | None = None
+        self, query: str, k: int = config.TOP_K, sources: list[str] | None = None,
+        held_back: list[Hit] | None = None,
     ) -> list[Hit]:
         """Best chunks for a question, best first; [] if nothing is relevant enough.
 
         `hit.score` is the fused RRF score, or the reranker's relevance (0..1)
         when reranking is on; both only order results. `hit.scores` keeps every
         stage's score ("dense" cosine, "keyword" BM25, "rrf", "rerank").
+
+        Quarantined chunks (flagged as prompt injections when indexed, Phase 15)
+        are never returned; the next-best chunks take their places. Those that
+        would have been among the top `k` are added to `held_back`, if given.
         """
         if not query.strip() or not self.store.count():
             return []
@@ -222,13 +227,14 @@ class Retriever:
             h.score = fused[cid]
             results.append(h)
 
-        if self.reranker is None:
-            return results[:k]
-        rel = self.reranker.score(query, [passage(h) for h in results])
-        for h, r in zip(results, rel):
-            h.scores["rerank"] = h.score = float(r)
-        results.sort(key=lambda h: -h.score)
-        return results[:k]
+        if self.reranker is not None:
+            rel = self.reranker.score(query, [passage(h) for h in results])
+            for h, r in zip(results, rel):
+                h.scores["rerank"] = h.score = float(r)
+            results.sort(key=lambda h: -h.score)
+        if held_back is not None:
+            held_back.extend(h for h in results[:k] if h.quarantined)
+        return [h for h in results if not h.quarantined][:k]
 
     def _keyword_search(
         self, query: str, k: int, sources: list[str] | None

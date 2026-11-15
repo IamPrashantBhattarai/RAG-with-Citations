@@ -13,3 +13,4 @@ eval/runs/
 .cache/
 .chats/
 access.toml
+.registrations.json

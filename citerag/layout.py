@@ -56,7 +56,8 @@ from citerag import config
 log = logging.getLogger(__name__)
 
 # Bump when the text this module produces changes, so cached parses are redone.
-PARSER_VERSION = 2
+# 3: hidden HTML elements (by style, in web pages and email bodies) are dropped (Phase 15).
+PARSER_VERSION = 3
 FORMULA_MODES = ("text", "latex")
 OCR_ENGINES = ("rapidocr", "ocrmac", "off")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
@@ -216,15 +217,72 @@ def clean_html(data: bytes) -> bytes:
     root = soup.find("main") or soup.find(attrs={"role": "main"}) or soup.find("article") or soup.body or soup
     for el in root.find_all(_CLUTTER_TAGS):
         el.decompose()
+    drop_hidden(root)
     for el in root.find_all(True):
         if el.decomposed:
             continue
         names = " ".join([el.get("id") or ""] + list(el.get("class") or []))
-        hidden = el.has_attr("hidden") or el.get("aria-hidden") == "true"
-        if hidden or _CLUTTER_WORDS & set(re.split(r"[^a-z0-9]+", names.lower())):
+        if _CLUTTER_WORDS & set(re.split(r"[^a-z0-9]+", names.lower())):
             el.decompose()
     title = soup.title.string if soup.title and soup.title.string else ""
     return f"<html><head><title>{html.escape(title)}</title></head><body>{root}</body></html>".encode()
+
+
+# Inline styles that make an element invisible to a reader but not to a parser:
+# the usual way to hide instructions for the AI in a web page or an email (Phase 15).
+_HIDDEN_STYLE_RE = re.compile(
+    r"display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)"
+    r"|font-size\s*:\s*0+(?:\.0+)?(?:px|pt|em|rem|%)?\s*(?:;|!|$)"
+    r"|opacity\s*:\s*0+(?:\.0+)?\s*(?:;|!|$)"
+    r"|(?:left|top|text-indent)\s*:\s*-\d{3,}(?:\.\d+)?(?:px|em|rem)",
+    re.IGNORECASE,
+)
+_HIDDEN_CLASSES = {"sr-only", "visually-hidden", "screen-reader-text", "hidden"}
+
+
+def drop_hidden(root) -> int:
+    """Remove the elements of an HTML tree that a reader never sees; returns how many.
+
+    Hidden by attribute (`hidden`, `aria-hidden="true"`), by inline style (no
+    display, invisible, zero size, transparent, pushed off-screen), by a
+    screen-reader-only class, or a <template>.
+    """
+    removed = 0
+    for el in root.find_all(True):
+        if el.decomposed:
+            continue
+        if (el.name == "template" or el.has_attr("hidden") or el.get("aria-hidden") == "true"
+                or _HIDDEN_STYLE_RE.search(el.get("style") or "")
+                or _HIDDEN_CLASSES & set(el.get("class") or [])):
+            el.decompose()
+            removed += 1
+    return removed
+
+
+def visible_html(html_text: str) -> str:
+    """An HTML fragment (an email body) without its hidden elements."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    if drop_hidden(soup):
+        log.info("removed hidden elements from an HTML part")
+    return str(soup)
+
+
+def _email_backend():
+    from docling.backend.email_backend import EmailDocumentBackend
+
+    class VisibleEmailBackend(EmailDocumentBackend):
+        """Docling's email reader, reading an HTML body without its hidden elements.
+
+        Docling converts an email's HTML part itself, so the web-page cleanup
+        above never sees it; .eml and .msg both go through this method.
+        """
+
+        def _convert_html_part(self, html: str):
+            return super()._convert_html_part(visible_html(html))
+
+    return VisibleEmailBackend
 
 
 def _html_stream(path: Path):
@@ -493,7 +551,7 @@ def _converter(formulas: str, ocr: str):
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import (OcrMacOptions, PdfPipelineOptions, RapidOcrOptions,
                                                     TableFormerMode)
-    from docling.document_converter import DocumentConverter, ImageFormatOption, PdfFormatOption
+    from docling.document_converter import DocumentConverter, EmailFormatOption, ImageFormatOption, PdfFormatOption
 
     for name in ("docling", "docling_core", "docling_ibm_models", "docling_parse", "RapidOCR"):
         logging.getLogger(name).setLevel(logging.WARNING)
@@ -508,7 +566,8 @@ def _converter(formulas: str, ocr: str):
         allowed_formats=[InputFormat.PDF, InputFormat.IMAGE, InputFormat.DOCX, InputFormat.PPTX, InputFormat.HTML,
                          InputFormat.EMAIL],
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts),
-                        InputFormat.IMAGE: ImageFormatOption(pipeline_options=opts)},
+                        InputFormat.IMAGE: ImageFormatOption(pipeline_options=opts),
+                        InputFormat.EMAIL: EmailFormatOption(backend=_email_backend())},
     )  # DOCX, PPTX, HTML and email use Docling's readers for them: no layout model needed, the file has structure
 
 

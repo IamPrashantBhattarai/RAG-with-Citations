@@ -18,7 +18,7 @@ The second is the RAG-specific one. A restricted passage that reaches the LLM ev
 |---|---|
 | Sign-in provider | **Google** |
 | How permissions are organised | **Folders = groups** (`data/hr/…` → group `hr`; `data/public/…` → everyone signed in) |
-| Who may sign in | **Only emails listed in `access.toml`** |
+| Who may sign in | **Only emails listed in `access.toml`**. Changed 2026-11-13: optional **open registration**, where unlisted Google users get in as public users (see below). |
 
 ## Step 1 — Tech stack
 
@@ -107,6 +107,50 @@ What came up along the way:
   - `test_handwritten_form_values_stay_next_to_their_labels` (Phase 10 OCR) had `data/handwriting.pdf` hard-coded, and the full run showed "1 skipped".
   - Both now look under `data/` at any depth, and both run again.
 - Tests: +1 `test_eval.py` (a document found in a group folder; hidden folders skipped; two matches reported). 286 passing, none skipped.
+
+## Open registration (2026-11-13)
+
+**Request:** let people register themselves. New users should be public users until their emails are added to `access.toml`.
+
+**Decisions (asked):**
+
+| Question | Choice |
+|---|---|
+| How people register | **With their Google account.** Their Google-verified email is their identity, and the first sign-in registers them. No passwords are stored; an email-and-password form would need an email-sending account, password storage and resets. |
+| Should admins see who registered | **Yes.** Each person is listed with a block to paste into `access.toml`. |
+
+**How it works:**
+- **The switch:** `open_registration = true` at the top of `access.toml`. It's off unless set, so an install opens up only by choice. It's validated (true or false) and re-read on the next page load, like the rest of the file.
+- **Who gets in:**
+  - `Policy.resolve(email)` gives the listed user if there is one.
+  - With open registration, an unlisted, Google-verified email becomes `User(email, listed=False)`. With no groups and no admin rights, that user reads only `data/public/`, through the same `ScopedRetriever` as everyone else.
+  - Otherwise the user is turned away, as before.
+- **The sign-in log** (`Registrations`, `.registrations.json`, git-ignored):
+  - Records each email's first and last sign-in, once per browser session.
+  - It's written atomically under a lock, since Streamlit sessions are threads of one process.
+  - A file that can't be read or written is logged and never stops a sign-in.
+- **The page:**
+  - A new user sees "Signed in as … · public documents only" and "An admin can add you to a group for more."
+  - Admins see **Registered, public only (N)**: each email, first and last sign-in, and its `[[users]]` block with `groups = []`, ready to paste.
+  - Once the email is listed, they drop off the list and get their groups on their next page load.
+- **Manual step:** the Google app must be **published** (Google Auth Platform → Audience → *Publish app*). In *Testing*, only its test users can sign in at all. Google doesn't review apps asking only for `openid`, `email` and `profile`.
+
+**Tests:**
+- `test_access.py` (+5):
+  - unlisted users get in public-only, while listed ones keep their groups; a bad email gets nobody in
+  - closed registration turns them away, and a non-boolean switch is rejected
+  - sign-ins keep the first time and list only unlisted users
+  - a corrupt log recovers
+  - the pasted block is valid `access.toml`
+- `test_ui.py` (+3):
+  - a new Google user gets in, sees and searches only `public/`, and is recorded
+  - an admin sees the waiting user's block, and a member doesn't see the list
+  - without open registration, the same user is turned away
+- The UI tests write the log to a temporary file, never the real one.
+
+**Limitations:**
+- **Anyone with a Google account** who can reach the app can now read `data/public/` and ask questions, which spends the LLM budget. The app still listens only on this computer. Before it's on a server, it needs per-user limits.
+- **No block list yet:** to stop one person, turn open registration off. Admins can't remove someone from the log either.
 
 ## Step 4 — Evaluation: does anything leak?
 

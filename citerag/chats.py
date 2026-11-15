@@ -121,7 +121,7 @@ def answer_from_dict(d: dict) -> Answer:
         hits=[Hit(**h) for h in d["hits"]],
         found=d["found"], stop_reason=d.get("stop_reason"), model=d.get("model"),
         usage=d.get("usage") or {}, invalid_markers=list(d.get("invalid_markers", [])),
-        validation=validation,
+        validation=validation, held_back=list(d.get("held_back", [])),
     )
 
 

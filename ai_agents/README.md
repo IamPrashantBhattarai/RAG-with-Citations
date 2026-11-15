@@ -20,7 +20,8 @@ A record of every step taken to build this project: **what** was done and **why*
 | [11-more-formats.md](11-more-formats.md) | More file formats, one at a time: Word, PowerPoint, HTML and web pages (saved by URL, public addresses only), email with its attachments | ✅ Done |
 | [12-conversations.md](12-conversations.md) | Multi-turn chat: follow-ups rewritten into standalone questions (only when they look like one), chats saved and reopened from the address | ✅ Done |
 | [13-access.md](13-access.md) | Google sign-in and folder-based permissions enforced at search time; per-user chats; leak test | ✅ Done (Google client set up 2026-11-11) |
-| [14-ci.md](14-ci.md) | Tests on GitHub for every push: clean Linux machine, exact versions from `requirements.lock`, CPU-only PyTorch, cached models | 🔧 Built; first GitHub run pending |
+| [14-ci.md](14-ci.md) | Tests on GitHub for every push: clean Linux machine, exact versions from `requirements.lock`, CPU-only PyTorch, cached models | ✅ Done (first run passed 2026-11-13) |
+| [15-screening.md](15-screening.md) | Prompt-injection screening at indexing (rules + Wolf Defender, benchmarked against ProtectAI), quarantine, hidden-text removal; private-data masking for non-admins | ✅ Done |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
 
@@ -42,7 +43,8 @@ A record of every step taken to build this project: **what** was done and **why*
 | 11 | More file formats (third step): Word, PowerPoint, HTML/web pages, email | ✅ |
 | 12 | Multi-turn chat: follow-ups, saved chats | ✅ |
 | 13 | Sign-in (Google) and permissions (folders = groups) | ✅ |
-| 14 | Tests on GitHub for every push (CI) | 🔧 |
+| 14 | Tests on GitHub for every push (CI) | ✅ |
+| 15 | Prompt-injection screening and private-data masking | ✅ |
 
 ## Key decisions
 
@@ -62,4 +64,10 @@ A record of every step taken to build this project: **what** was done and **why*
 14. **OCR with RapidOCR, only on pages without a text layer, and forms read row by row.** RapidOCR read 17/17 handwritten values on the user's form and runs on any OS. Apple Vision is an option on Macs (better on printed scans), and EasyOCR was far behind. Docling's reading order separated form values from their labels, so a page that's at least half a form is rebuilt from its visual rows. OCR'ing images on text pages added noise and split a paragraph, so text-layer pages are never OCR'd. All 12 questions about the form were answered correctly. ([10-ocr.md](10-ocr.md))
 15. **More formats, each with its own test file, eval questions and a measured result.** Word is one text cited by section. PowerPoint is one chunk per slide, cited as "slide 3", with speaker notes. HTML is cut down to the article first, and web pages are saved by URL from public addresses only. Emails come with their attachments, read by the same loaders. Along the way the citation checker learned to read table rows, and the chunker got a version in the index fingerprint. ([11-more-formats.md](11-more-formats.md))
 16. **Follow-ups are rewritten, not remembered.** The LLM turns a follow-up into a standalone question, which is searched, answered and checked like any other. The conversation never enters the answering prompt, so answers stay grounded and checkable. Rewriting only when a question looks like a follow-up keeps the extra call off most questions. On 12 test follow-ups, answers went from 9/12 to 12/12 correct. Chats are saved locally and reopen from the address. ([12-conversations.md](12-conversations.md))
-17. **Permissions are enforced at search time, not in the page.** Google sign-in (Streamlit's built-in OIDC; no passwords stored). `access.toml` lists who may enter and their groups. Folders under `data/` are groups, and files in no folder are admin-only. Every search goes through a scoped retriever that filters to the user's documents and checks each result again; an empty set means nothing, never everything. 504 searches by restricted users on the real search stack: 0 leaks. ([13-access.md](13-access.md))
+17. **Permissions are enforced at search time, not in the page.** Google sign-in (Streamlit's built-in OIDC; no passwords stored). `access.toml` lists who may enter and their groups. Folders under `data/` are groups, and files in no folder are admin-only. Every search goes through a scoped retriever that filters to the user's documents and checks each result again; an empty set means nothing, never everything. 504 searches by restricted users on the real search stack: 0 leaks. Optional open registration (2026-11-13): unlisted Google users get in as public users until listed, and admins see who is waiting. ([13-access.md](13-access.md))
+18. **CI tests exactly what runs locally.** GitHub runs the suite for every push on a clean Ubuntu machine, installing from `requirements.lock`. The lock holds 183 pins taken from the working environment, with CPU-only PyTorch on Linux. Models are cached between runs, and no secrets are needed. The tests that read the private documents in `data/` and the evals stay local. The first run passed in about 1½ minutes. ([14-ci.md](14-ci.md))
+19. **Injections are screened at indexing and quarantined; private data is masked when shown.**
+    - Every passage is checked once, by rules plus Patronus Wolf Defender at 0.99, pinned to the benchmarked weights. Flagged passages never reach the model, and admins see them.
+    - Wolf was chosen on attacks hand-written for this project and planted in the real passages: 88% caught, with 0 of 162 real passages flagged. ProtectAI's DeBERTa caught 23% and flagged 43% of NotInject.
+    - Text hidden from readers is removed (styled-invisible HTML, in emails too) or made visible (Unicode tag characters) first.
+    - Phone, ID, bank and card numbers are masked for non-admins by digit, keeping the text's length, so quotes and highlights stay in place. ([15-screening.md](15-screening.md))

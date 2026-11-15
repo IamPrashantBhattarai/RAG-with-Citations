@@ -310,8 +310,25 @@ _CHAR_MAP = str.maketrans(  # escapes, not literal characters: editors mangle in
         # Private Use Area code points; the chunker recognises "\u2022" as a list item.
         "\uf0b7": "\u2022", "\uf0a7": "\u2022", "\uf0a8": "\u2022", "\uf06c": "\u2022",
         "\uf06e": "\u2022", "\uf076": "\u2022", "\uf0d8": "\u2022", "\uf0fc": "\u2022",
+        # Invisible characters that can hide or reorder text (Phase 15): direction
+        # controls ("Trojan Source"), invisible operators, variation selectors.
+        **{chr(c): None for c in (*range(0x202A, 0x202F), *range(0x2066, 0x206A), 0x200E, 0x200F, 0x061C,
+                                  *range(0x2061, 0x2065), 0x180E, 0x034F, *range(0xFE00, 0xFE10))},
     }
 )
+# Unicode "tag" characters (U+E0020-E007E) are invisible copies of ASCII, used to
+# smuggle instructions to an AI past a human reader. They are turned back into
+# visible text, so the injection screen sees them and anyone can read them; the
+# tag letters of a subdivision flag emoji (England, Scotland, Wales) are dropped.
+_TAG_RUN_RE = re.compile("\U0001F3F4?[\U000E0000-\U000E007F]+")
+_VARIATION_SUPPLEMENT_RE = re.compile("[\U000E0100-\U000E01EF]+")
+
+
+def _reveal_tags(match: re.Match) -> str:
+    run = match.group()
+    if run.startswith("\U0001F3F4"):
+        return "\U0001F3F4"
+    return "".join(chr(ord(c) - 0xE0000) for c in run if 0xE0020 <= ord(c) <= 0xE007E)
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0e-\x1f\x7f]")
 _TRAILING_WS_RE = re.compile(r"[ \t]+\n")
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
@@ -336,6 +353,7 @@ _DANGLING_RE = re.compile(
 def clean_text(text: str) -> str:
     """Normalize characters and whitespace; keeps blank lines (paragraph breaks)."""
     text = text.replace("\r\n", "\n").translate(_CHAR_MAP)
+    text = _VARIATION_SUPPLEMENT_RE.sub("", _TAG_RUN_RE.sub(_reveal_tags, text))
     text = _CONTROL_RE.sub("", text)
     text = _TRAILING_WS_RE.sub("\n", text + "\n")
     return _BLANK_RUN_RE.sub("\n\n", text).strip()

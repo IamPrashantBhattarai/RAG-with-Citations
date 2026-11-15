@@ -53,6 +53,8 @@ EMAIL_ATTACHMENTS = os.getenv("CITERAG_EMAIL_ATTACHMENTS", "1") == "1"
 ACCESS_FILE = Path(os.getenv("CITERAG_ACCESS_FILE", ROOT_DIR / "access.toml"))
 # Saved chats (Phase 12): one JSON file per conversation. They quote the documents: keep them private.
 CHATS_DIR = Path(os.getenv("CITERAG_CHATS_DIR", ROOT_DIR / ".chats"))
+# Who has signed in and when (open registration): it lists people's emails, keep it private.
+REGISTRATIONS_FILE = Path(os.getenv("CITERAG_REGISTRATIONS_FILE", ROOT_DIR / ".registrations.json"))
 # Parsed pages, keyed by file content and parser settings, so unchanged files aren't parsed again.
 PARSE_CACHE_DIR = Path(os.getenv("CITERAG_PARSE_CACHE_DIR", ROOT_DIR / ".cache" / "parsed"))
 
@@ -100,3 +102,18 @@ NLI_MODEL = os.getenv("CITERAG_NLI_MODEL", "MoritzLaurer/DeBERTa-v3-base-mnli-fe
 # A statement counts as supported when the NLI model's P(entailment) for its cited
 # quote or passage reaches this. Calibrated for the model above.
 NLI_THRESHOLD = float(os.getenv("CITERAG_NLI_THRESHOLD", "0.5"))
+
+# Screening (Phase 15, ai_agents/15-screening.md)
+# Every chunk is screened for prompt injection when it is indexed; flagged chunks
+# are quarantined (never sent to the LLM) and admins are warned. "0" turns it off.
+INJECTION_SCREEN = os.getenv("CITERAG_INJECTION_SCREEN", "1") == "1"
+# Chosen by eval/injection.py (2026-11-13): with the rules, it caught 88% of attacks
+# planted in the real documents' passages and flagged none of those passages;
+# ProtectAI's DeBERTa v2 caught 23%. The revision pins the benchmarked weights, so a
+# new upload can't change what is quarantined. The threshold is P(injection).
+INJECTION_MODEL = os.getenv("CITERAG_INJECTION_MODEL", "patronus-studio/wolf-defender-prompt-injection")
+INJECTION_REVISION = os.getenv("CITERAG_INJECTION_REVISION", "af0b16a1d40ca246595e48246ccf9f906a52a50e") or None
+INJECTION_THRESHOLD = float(os.getenv("CITERAG_INJECTION_THRESHOLD", "0.99"))
+# Phone, ID, bank and card numbers in answers and passages are masked for
+# signed-in users who aren't admins. "0" turns masking off.
+MASK_PRIVATE = os.getenv("CITERAG_MASK_PRIVATE", "1") == "1"

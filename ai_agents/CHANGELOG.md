@@ -4,6 +4,36 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-13
 
+### Added — Open registration ([13-access.md](13-access.md#open-registration-2026-11-13))
+- `open_registration = true` in `access.toml` (off by default): anyone with a Google account can sign up, and unlisted users get in as **public users** (`data/public/` only) until an admin lists them with groups.
+- Each sign-in is recorded in `.registrations.json` (git-ignored; first and last sign-in). Admins see **Registered, public only** in the sidebar, with a ready-to-paste `[[users]]` block per person.
+- New users see "public documents only" and how to get more.
+- Turned on in the user's `access.toml`. Manual step: publish the Google app (Google Auth Platform → Audience → Publish app).
+- Tests: +5 `test_access.py`, +3 `test_ui.py`. 351 passing.
+
+### Added — Phase 15: Prompt-injection screening and private-data masking ([15-screening.md](15-screening.md))
+- **Hidden text removed or revealed before indexing:**
+  - web pages lose elements hidden by style
+  - email HTML bodies are cleaned too, through a subclass of Docling's email reader (`PARSER_VERSION` 3)
+  - invisible Unicode tag characters are turned into visible text, so the screen sees them
+  - direction controls and variation selectors are removed
+- **Every passage is screened at indexing** (`citerag/screen.py`): high-precision rules plus Patronus Wolf Defender (pinned to `af0b16a1`) at 0.99.
+  - Flagged passages are quarantined: stored with the reason, never sent to the model; the next-best passages take their places.
+  - The answer notes what was held back, and admins get a sidebar warning showing the passages.
+  - The screen's settings are in each file's fingerprint.
+- **Detector benchmark** (`eval/injection.py`, `eval/injections.json`): 40 new hand-written attacks and 30 look-alikes planted in the real passages, plus LLMail-Inject, NotInject and deepset.
+  - Rules plus Wolf at 0.99: **0 of 162 real passages flagged, 87.5% of planted attacks caught**, 90% of LLMail attacks, 6.7% look-alike false alarms.
+  - ProtectAI DeBERTa v2: 23% of planted attacks caught, 43% of NotInject flagged.
+- **Private data** (`citerag/privacy.py`): phone, ID (citizenship, NID, PAN, passport, licence, EIN…), bank account and card numbers. Nepali formats and Devanagari digits, Luhn and IBAN checks, and values a line below their label on forms.
+  - Masked for signed-in non-admins in the answer, its tooltips, the cited passages, the checks and the "Searched for" line, also while streaming. The text keeps its length, so highlights stay in place.
+  - On the 11 documents: the 4 values on the form found (3 EINs, 1 phone), nothing else flagged (`eval/privacy.py`).
+- **Fixed during the work:** a citation warning's reason quoted the unmasked number in its tooltip and in the Checks list.
+- Real index re-indexed with screening: 11 files, 162 chunks, 0 quarantined. Tests: 343 passing (+57).
+
+### System
+- Downloaded the prompt-injection detector (`patronus-studio/wolf-defender-prompt-injection`, 1.2 GB) and, for the benchmark only, `protectai/deberta-v3-base-prompt-injection-v2` (738 MB) and the public test sets into `eval/.cache/injection/` (git-ignored). No new Python packages.
+- Hugging Face downloads stalled over `xet`; the model was fetched with `HF_HUB_DISABLE_XET=1`.
+
 ### Added — Phase 14: Tests on GitHub ([14-ci.md](14-ci.md))
 - **`.github/workflows/tests.yml` (new):** every push and pull request runs the test suite on `ubuntu-24.04`.
   - Python 3.12 and uv 0.13.5 via `astral-sh/setup-uv@v10.3.3`.
@@ -14,6 +44,7 @@ Newest first. Each entry links to the phase doc with the full reasoning.
   - Offline: 279 passed, 4 failed (they need models).
   - Online: **284 passed, 2 skipped** (the private evaluation documents aren't in git), 65 s, 507 MB of models downloaded.
 - README: a tests badge, and the Tests section corrected (it said 191 offline tests).
+- **First run on GitHub passed** on the first try (run 43449313833, ~1½ min: install 5 s, tests with the first model download 50 s). Linux works with the locked versions and no system packages.
 
 ### System
 - `requirements.lock` added. Install exact versions with `uv pip install -r requirements.lock --torch-backend cpu`.

@@ -23,6 +23,7 @@ import html
 import io
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from citerag.generator import Answer
@@ -46,13 +47,16 @@ WARN_STYLE = "background: rgba(250, 204, 21, 0.3); border-radius: 3px; padding: 
 QUOTE_STYLE = "background: rgba(250, 204, 21, 0.45); color: inherit; padding: 0 1px"
 
 
-def answer_markdown(answer: Answer) -> str:
+def answer_markdown(answer: Answer, mask: Callable[[str], str] | None = None) -> str:
     """The answer as markdown, with warned statements highlighted.
 
     A warned statement gets a yellow background with its reasons as a
-    tooltip. Markers become superscripts and formulas are rendered.
+    tooltip. Markers become superscripts and formulas are rendered. With
+    `mask` (Phase 15), private values are masked; it keeps the text's length,
+    so every position worked out on the original text still applies.
     """
     text = answer.text
+    shown = mask(text) if mask else text
     math = _math_spans(text)
     warned = []
     v = answer.validation
@@ -74,11 +78,11 @@ def answer_markdown(answer: Answer) -> str:
     for start, end, issues in sorted(warned):
         if start < i:
             continue
-        tip = html.escape("; ".join(issues), quote=True)
-        out.append(_render(text, i, start, math, _escape))
-        out.append(f'<span style="{WARN_STYLE}" title="{tip}">{_render(text, start, end, math, _escape)}</span>')
+        tip = html.escape((mask or str)("; ".join(issues)), quote=True)  # a reason can quote the number
+        out.append(_render(shown, i, start, math, _escape))
+        out.append(f'<span style="{WARN_STYLE}" title="{tip}">{_render(shown, start, end, math, _escape)}</span>')
         i = end
-    out.append(_render(text, i, len(text), math, _escape))
+    out.append(_render(shown, i, len(shown), math, _escape))
     return "".join(out)
 
 
@@ -91,12 +95,14 @@ def streaming_markdown(text: str) -> str:
                    lambda s: _DOLLAR_RE.sub(r"\\$", _IMAGE_RE.sub(r"\1", s)))
 
 
-def passage_html(text: str, start: int, end: int) -> str:
+def passage_html(text: str, start: int, end: int, mask: Callable[[str], str] | None = None) -> str:
     """A passage with text[start:end] highlighted, as a single-line HTML block.
 
     Line breaks become <br> so the block has no blank line (which would end
-    an HTML block and let markdown parse the rest).
+    an HTML block and let markdown parse the rest). `mask` as in answer_markdown.
     """
+    text = mask(text) if mask else text
+
     def esc(s: str) -> str:
         return html.escape(s).replace("\n", "<br>")
 
@@ -104,20 +110,21 @@ def passage_html(text: str, start: int, end: int) -> str:
     return f'<div style="font-size: 0.9em; line-height: 1.5">{body}</div>'
 
 
-def check_lines(v: Validation) -> list[str]:
+def check_lines(v: Validation, mask: Callable[[str], str] | None = None) -> list[str]:
     """One markdown line per checked statement (✓ or ✗, reasons, NLI score)."""
+    shown = mask or (lambda s: s)
     lines = []
     for c in v.claims:
         marks = "".join(f"[{n}]" for n in c.citations)
         score = f" · support {c.entailment:.2f}" if c.entailment is not None else ""
-        line = f"{'✓' if c.status == 'ok' else ':orange[✗]'} {escape_md(c.text)} {escape_md(marks)}"
-        if c.issues:
-            line += f"  \n  ↳ *{escape_md('; '.join(c.issues))}*{score}"
+        line = f"{'✓' if c.status == 'ok' else ':orange[✗]'} {escape_md(shown(c.text))} {escape_md(marks)}"
+        if c.issues:  # a reason can quote the number ('"9841234567" isn't in the passage')
+            line += f"  \n  ↳ *{escape_md(shown('; '.join(c.issues)))}*{score}"
         elif score:
             line += f"  \n  ↳ *{score.lstrip(' ·')}*"
         lines.append(line)
     for c in v.removed:
-        lines.append(f"~~{escape_md(c.text)}~~  \n  ↳ *removed by strict mode: {escape_md('; '.join(c.issues))}*")
+        lines.append(f"~~{escape_md(shown(c.text))}~~  \n  ↳ *removed by strict mode: {escape_md(shown('; '.join(c.issues)))}*")
     return lines
 
 

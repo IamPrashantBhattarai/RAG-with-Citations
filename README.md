@@ -9,6 +9,7 @@ Add PDFs or notes, ask a question, and click any citation to see the quoted pass
 - Answers from Claude (paid) or Google Gemini (free tier)
 - Search, embeddings and citation checks run locally on your machine
 - A plain web page, reachable only from your own computer
+- Passages that try to give the AI instructions (prompt injection) are held back from the model, and phone, ID, bank and card numbers are masked for members who aren't admins
 - Tested on real documents: 53 of 55 questions answered correctly, and no made-up facts in 124 answers (see [Results](#results))
 
 ## How it works
@@ -38,7 +39,7 @@ The models and settings were chosen, or later confirmed, by benchmarks on public
 ## Requirements
 
 - Python 3.12 (the version this was built and tested with)
-- About 2.4 GB of disk space for the local models. They download automatically the first time they are used: embeddings 419 MB, reranker 574 MB, NLI checker 364 MB, PDF layout 328 MB and table structure 683 MB (Docling), OCR 31 MB (RapidOCR, installed with Docling). The optional formula model (`CITERAG_PDF_FORMULAS=latex`) adds 1.2 GB.
+- About 3.6 GB of disk space for the local models. They download automatically the first time they are used: embeddings 419 MB, reranker 574 MB, NLI checker 364 MB, PDF layout 328 MB and table structure 683 MB (Docling), OCR 31 MB (RapidOCR, installed with Docling), prompt-injection detector 1.2 GB (when documents are first indexed). The optional formula model (`CITERAG_PDF_FORMULAS=latex`) adds 1.2 GB.
 - An API key for the LLM, either one of:
   - **Gemini** (free): get a key at https://aistudio.google.com/apikey. On the free tier, Google may use your prompts to improve its products, so don't use it with private documents. `gemini-3.6-flash` allows 20 requests a day; after that, the app switches to `gemini-3.5-flash-lite` on its own.
   - **Claude** (paid): an Anthropic API key. It gives exact quotes chosen by the model itself.
@@ -106,6 +107,13 @@ The page only listens on `localhost`, so other devices on your network can't rea
 ## Sign-in and permissions (optional)
 
 Without this, CiteRAG is a single-user tool on your computer. With it, people sign in with Google, only those listed in `access.toml` get in, and each one searches only the documents of their groups.
+
+**Open registration (optional):** set `open_registration = true` at the top of `access.toml`.
+- Anyone with a Google account can then sign up. Someone who isn't listed gets in as a **public user**, who reads only `data/public/`, until an admin lists them with groups.
+- Admins see them in the sidebar under **Registered, public only**, with a block to paste into `access.toml`.
+- Sign-ins are recorded in `.registrations.json` (not in git).
+- While the Google app is in *Testing*, only its test users can sign in at all, so click **Publish app** under *Audience* to open it. Google doesn't review apps that ask only for these basic scopes.
+- Everyone who signs up can ask questions, which uses your LLM budget.
 
 **How permissions work:** folders under `data/` are groups. `data/hr/…` is for the group `hr`; `data/public/…` is for everyone signed in; files directly in `data/` (in no folder) are for admins only. Admins see everything and are the only ones who can upload, add web pages, remove documents and rescan. Each person's chats are their own.
 
@@ -182,6 +190,9 @@ All settings live in `citerag/config.py` and can be overridden in `.env`. The on
 | `CITERAG_PDF_FORMULAS` | `text` | `latex` writes formulas as LaTeX where the formula model agrees with the PDF text (1.2 GB model, about 20 s per formula) |
 | `CITERAG_EMAIL_ATTACHMENTS` | `1` | `0` lists an email's attachments by name instead of reading them |
 | `CITERAG_OCR` | `rapidocr` | OCR for pages without a text layer and for images: `ocrmac` uses Apple Vision on a Mac (`pip install ocrmac`; fewer glued words on printed scans), `off` turns OCR off |
+| `CITERAG_INJECTION_SCREEN` | `1` | `0` turns off the prompt-injection screen (passages are then never held back) |
+| `CITERAG_INJECTION_THRESHOLD` | `0.99` | How sure the detector must be before a passage is held back; changing it re-screens every file on the next index |
+| `CITERAG_MASK_PRIVATE` | `1` | `0` shows phone, ID, bank and card numbers to members in full |
 | `CITERAG_CHUNK_SIZE` | `384` | Tokens per chunk (changing it re-embeds everything on the next index) |
 | `CITERAG_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | Changing it needs `python -m citerag.store data/ --reset` |
 
@@ -207,6 +218,8 @@ Run the evaluation yourself (the three PDFs listed in `eval/questions.json` must
 python -m eval.retrieval                 # search quality and the relevance cutoff; local, about 1 minute
 python -m eval.answers --tag mytag       # the full pipeline with the LLM; resumable if a rate limit stops it
 python -m eval.answers --tag mytag --recheck    # re-run only the citation checks on saved answers
+python -m eval.injection                 # prompt-injection detectors on your passages, planted attacks and public sets
+python -m eval.privacy                   # the phone, ID, bank and card numbers found in your documents, masked
 ```
 
 Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.md).
@@ -217,15 +230,16 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 .venv/bin/python -m pytest
 ```
 
-286 tests:
+351 tests:
 - **Fakes stand in for most models.** The LLM, sign-in and most of the search and checking models are faked, so no API key is needed. The UI tests run the real Streamlit app headless.
 - **Some tests use real models.** The parsing and OCR tests run Docling and RapidOCR for real, one index test loads the embedding model, and one chunker test loads its tokenizer. They download about 500 MB on the first run and work offline after that.
 - **Two tests read the evaluation documents in `data/`** and are skipped when those aren't there.
+- **One test runs the real prompt-injection detector** (1.2 GB). It runs only when the detector is already downloaded, so GitHub skips it.
 
 **On GitHub** ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)), the tests run on a clean Linux machine for every push and pull request; the badge at the top shows the latest result.
 - The machine installs exactly the versions in [`requirements.lock`](requirements.lock), so it tests what runs locally rather than whatever is newest. To install those versions yourself: `uv pip install --python .venv/bin/python -r requirements.lock --torch-backend cpu`.
 - No secrets are needed.
-- The two document tests are skipped there, because `data/` isn't in git.
+- The two document tests and the real-detector test are skipped there: `data/` isn't in git, and the detector isn't downloaded.
 
 ## Project layout
 
@@ -241,6 +255,8 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 | `citerag/chats.py` | Save and reopen chats (`.chats/`, one folder per user when sign-in is on) |
 | `citerag/auth.py` | Google sign-in through Streamlit (which verified email is signed in) |
 | `citerag/access.py` | Who may read which documents (`access.toml`), and the search that enforces it |
+| `citerag/screen.py` | Screen passages for prompt injection when they are indexed (rules and a local detector model) |
+| `citerag/privacy.py` | Find and mask phone, ID, bank and card numbers |
 | `citerag/chunker.py` | Split pages into chunks with stable IDs |
 | `citerag/store.py` | Embeddings and the ChromaDB index |
 | `citerag/retriever.py` | Hybrid search, reranking, the "not in the documents" cutoff |
@@ -249,7 +265,7 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 | `citerag/citations.py` | Turn `[n]` markers into exact quotes |
 | `citerag/validator.py` | Check each statement against its citations; strict mode |
 | `citerag/ui.py` | Safe rendering, quote highlighting, uploads, cited PDF pages |
-| `eval/` | Question set and benchmarks (Phase 8) |
+| `eval/` | Question set and benchmarks (Phase 8); prompt-injection and private-data checks (Phase 15) |
 | `tests/` | pytest suite |
 | `ai_agents/` | Build log: what was done in each phase and why |
 | `data/` | Your documents (git-ignored) |
@@ -260,6 +276,9 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 - Your documents, the index and the models stay on your computer. Only the question and the 5 retrieved passages (with their file names, pages and section titles) are sent to the LLM provider you choose.
 - On Gemini's free tier, Google may use prompts and answers to improve its products.
 - LLM and document text is HTML-escaped before it is shown, so a document can't inject code into the page. Formulas (`$…$`, `$$…$$`) are rendered with KaTeX in untrusted mode.
+- **Prompt injection:** every passage is screened when it is indexed, on this computer. A passage that tries to give the AI instructions is held back from the model, and admins see it in the sidebar. Text hidden from readers (styled-invisible HTML in pages and emails, invisible Unicode characters) is removed or made visible first.
+- **Private data:** phone numbers, ID numbers (citizenship, national ID, PAN, passport, driving licence, EIN), and bank account and card numbers are masked for signed-in members who aren't admins, in answers, quoted passages and checks. The model still receives them, so it can answer questions about them.
+  - The "Show PDF" and "Show image" views show the original file, which the member is allowed to read.
 
 ## Limitations
 
@@ -271,6 +290,10 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 - **Questions spanning two documents** can end up with all 5 passages from one of them.
 - **One question at a time:** follow-up questions don't see earlier answers.
 - **The checks are a signal, not proof:** they catch most wrong numbers and names, but a swapped term that also appears in the cited passage can pass.
+- **The prompt-injection screen misses some attacks.** It caught 88% of 120 planted attacks. It misses text spelled out letter by letter, leetspeak, base64, and some politely worded demands, so the model's instruction to treat documents as data is still the last line of defence.
+  - It holds back a whole passage, so useful text next to an attack is held back too.
+  - Common footers such as "Do not reply to this email" can raise a false alarm. None of the 162 real passages tested did.
+- **Private data is found by patterns:** names and addresses aren't detected. Numbers in formats other than Nepal's are found when written with a "+" country code or next to their label ("Passport No.", "Account").
 
 ## Build log
 

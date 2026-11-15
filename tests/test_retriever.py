@@ -116,3 +116,16 @@ def test_passage_carries_title_and_section(tmp_path):
     hit = make_retriever(tmp_path).store.all_chunks()[0]
     hit.section = "Eruptions"
     assert passage(hit).startswith(f"{hit.source.split('.')[0]} > Eruptions\n\n")
+
+
+def test_quarantined_passages_are_never_returned_but_reported(tmp_path):
+    from tests.test_store import FlagScreener
+
+    store = make_store(tmp_path, screener=FlagScreener("XJ-4417"))
+    store.index(DOCS)
+    retriever = Retriever(store, reranker=FakeReranker(), use_reranker=True, candidates=10, min_score=0.0)
+    held = []
+    hits = retriever.retrieve("What does error code XJ-4417 mean for the pump?", k=2, held_back=held)
+    assert len(hits) == 2 and all(h.source != "manual.txt" for h in hits)  # the next best fill in
+    assert [h.source for h in held] == ["manual.txt"]
+    assert retriever.retrieve("What does error code XJ-4417 mean for the pump?", k=2)  # held_back is optional
