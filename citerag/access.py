@@ -15,6 +15,12 @@ can sign in: an email that isn't listed gets in as a public user (data/public/
 only) until an admin lists it with groups. Every sign-in is recorded in a small
 local file (Registrations), so admins can see who is waiting to be promoted.
 
+Phase 16: `blocked = [...]` shuts people out, whatever else the file says, and
+[limits] caps how many questions people ask (counted in citerag/usage.py):
+per day for sign-ups and for members, per day for all sign-ups together, and
+per minute for everyone. Admins have no limit; `daily_questions` on a user
+gives that person their own daily limit.
+
 Permissions are enforced where a document's text could leave the index: every
 search goes through ScopedRetriever, which filters to the user's documents
 before the LLM or the page sees anything, and checks each result again after.
@@ -35,14 +41,16 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from citerag import config
+from citerag.usage import NO_LIMIT, Quota
 
 log = logging.getLogger(__name__)
 
 PUBLIC = "public"
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 _GROUP_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]*")
-_USER_KEYS = {"email", "admin", "groups"}
-_SETTINGS = {"users", "open_registration"}
+_USER_KEYS = {"email", "admin", "groups", "daily_questions"}
+_SETTINGS = {"users", "open_registration", "blocked", "limits"}
+_TOP_LEVEL = {"open_registration", "blocked"}  # TOML: these must come before the first [table]
 
 
 class AccessError(Exception):
@@ -55,6 +63,7 @@ class User:
     admin: bool = False
     groups: frozenset[str] = frozenset()
     listed: bool = True  # False: signed up through open registration, not in access.toml yet
+    daily_questions: int | None = None  # their own daily question limit, instead of [limits] member (Phase 16)
 
     def can_read(self, source: str) -> bool:
         group = group_of(source)
@@ -81,24 +90,57 @@ def group_of(source: str) -> str | None:
     return parts[0] if len(parts) > 1 else None
 
 
+@dataclass(frozen=True)
+class Limits:
+    """[limits] in access.toml: how many questions people may ask. (Phase 16)"""
+
+    public: int = 20         # per day, for each sign-up not in access.toml
+    member: int = 100        # per day, for each listed user who isn't an admin
+    public_total: int = 200  # per day, for all sign-ups together
+    per_minute: int = 5      # for anyone but admins
+
+
+def _normalise(email: str | None) -> str:
+    return (email or "").strip().lower()
+
+
 class Policy:
-    def __init__(self, users: list[User], open_registration: bool = False):
+    def __init__(self, users: list[User], open_registration: bool = False, blocked=(),
+                 limits: Limits | None = None):
         self.users = {u.email: u for u in users}
         self.open_registration = open_registration
+        self.blocked = frozenset(_normalise(e) for e in blocked)
+        self.limits = limits or Limits()
 
     def user(self, email: str | None) -> User | None:
         """The listed user with this email (case doesn't matter), or None."""
-        return self.users.get((email or "").strip().lower())
+        return self.users.get(_normalise(email))
+
+    def is_blocked(self, email: str | None) -> bool:
+        return _normalise(email) in self.blocked
 
     def resolve(self, email: str | None) -> User | None:
         """Who this (Google-verified) email signs in as: the listed user; with open
-        registration, an unlisted email as a public user; otherwise None, not allowed in."""
+        registration, an unlisted email as a public user; otherwise None, not allowed in.
+        A blocked email is None, whatever else the file says."""
+        if self.is_blocked(email):
+            return None
         if listed := self.user(email):
             return listed
-        email = (email or "").strip().lower()
+        email = _normalise(email)
         if self.open_registration and _EMAIL_RE.fullmatch(email):
             return User(email, listed=False)
         return None
+
+    def quota(self, user: User) -> Quota:
+        """How many questions `user` may ask."""
+        if user.admin:
+            return NO_LIMIT
+        limits = self.limits
+        daily = user.daily_questions if user.daily_questions is not None else (
+            limits.member if user.listed else limits.public)
+        return Quota(daily=daily, per_minute=limits.per_minute,
+                     shared=None if user.listed else limits.public_total)
 
     @classmethod
     def load(cls, path: Path | None = None) -> Policy:
@@ -113,6 +155,8 @@ class Policy:
         users = []
         for i, entry in enumerate(data.get("users", []), start=1):
             where = f"{path.name}, user {i}"
+            if isinstance(entry, dict) and (misplaced := sorted(set(entry) & _TOP_LEVEL)):
+                raise AccessError(_misplaced(where, misplaced[0]))
             if not isinstance(entry, dict) or set(entry) - _USER_KEYS:
                 raise AccessError(f"{where}: only {', '.join(sorted(_USER_KEYS))} are allowed")
             email = str(entry.get("email", "")).strip().lower()
@@ -126,13 +170,53 @@ class Policy:
                 raise AccessError(f"{where}: admin must be true or false")
             if email in {u.email for u in users}:
                 raise AccessError(f"{where}: {email} is listed twice")
-            users.append(User(email, admin, frozenset(groups)))
+            daily = entry.get("daily_questions")
+            if daily is not None and not _count_ok(daily):
+                raise AccessError(f"{where}: daily_questions must be a whole number, 0 or more")
+            if daily is not None and admin:
+                raise AccessError(f"{where}: admins have no question limit, so daily_questions doesn't apply; "
+                                  "remove it")
+            users.append(User(email, admin, frozenset(groups), daily_questions=daily))
         if set(data) - _SETTINGS:
             raise AccessError(f"{path.name}: unknown setting {sorted(set(data) - _SETTINGS)[0]!r}")
         open_registration = data.get("open_registration", False)
         if not isinstance(open_registration, bool):
             raise AccessError(f"{path.name}: open_registration must be true or false")
-        return cls(users, open_registration)
+        return cls(users, open_registration, _blocked(data.get("blocked", []), path.name),
+                   _limits(data.get("limits", {}), path.name))
+
+
+def _count_ok(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _misplaced(where: str, key: str) -> str:
+    # In TOML a line after [limits] or [[users]] belongs to that section, however it's indented.
+    return f"{where}: {key} belongs at the top of the file, above [limits] and the first [[users]]"
+
+
+def _blocked(value, name: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(e, str) and _EMAIL_RE.fullmatch(_normalise(e))
+                                              for e in value):
+        raise AccessError(f'{name}: blocked must be a list of email addresses, like ["someone@gmail.com"]')
+    return [_normalise(e) for e in value]
+
+
+def _limits(value, name: str) -> Limits:
+    where = f"{name}, [limits]"
+    if not isinstance(value, dict):
+        raise AccessError(f"{where} must be a section of numbers")
+    if misplaced := sorted(set(value) & _TOP_LEVEL):
+        raise AccessError(_misplaced(where, misplaced[0]))
+    known = set(Limits.__dataclass_fields__)
+    if unknown := sorted(set(value) - known):
+        raise AccessError(f"{where}: unknown limit {unknown[0]!r}; the limits are {', '.join(sorted(known))}")
+    for key, n in value.items():
+        if not _count_ok(n):
+            raise AccessError(f"{where}: {key} must be a whole number, 0 or more")
+    if value.get("per_minute") == 0:
+        raise AccessError(f"{where}: per_minute must be at least 1 (to stop someone asking, block them)")
+    return Limits(**value)
 
 
 class Registrations:
@@ -173,8 +257,9 @@ class Registrations:
                 log.warning("couldn't record the sign-in of a user in %s (%s)", self.path.name, e)
 
     def unlisted(self, policy: Policy) -> list[tuple[str, dict]]:
-        """Signed-up users not in access.toml yet (public only), newest first."""
-        waiting = [(email, e) for email, e in self.all().items() if policy.user(email) is None]
+        """Signed-up users not in access.toml yet (public only), newest first. Blocked people aren't waiting."""
+        waiting = [(email, e) for email, e in self.all().items()
+                   if policy.user(email) is None and not policy.is_blocked(email)]
         return sorted(waiting, key=lambda item: item[1].get("first", ""), reverse=True)
 
 

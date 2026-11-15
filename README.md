@@ -9,6 +9,7 @@ Add PDFs or notes, ask a question, and click any citation to see the quoted pass
 - Answers from Claude (paid) or Google Gemini (free tier)
 - Search, embeddings and citation checks run locally on your machine
 - A plain web page, reachable only from your own computer
+- Optional Google sign-in: each person searches only their groups' documents, has a daily number of questions, and can be blocked
 - Passages that try to give the AI instructions (prompt injection) are held back from the model, and phone, ID, bank and card numbers are masked for members who aren't admins
 - Tested on real documents: 53 of 55 questions answered correctly, and no made-up facts in 124 answers (see [Results](#results))
 
@@ -113,7 +114,13 @@ Without this, CiteRAG is a single-user tool on your computer. With it, people si
 - Admins see them in the sidebar under **Registered, public only**, with a block to paste into `access.toml`.
 - Sign-ins are recorded in `.registrations.json` (not in git).
 - While the Google app is in *Testing*, only its test users can sign in at all, so click **Publish app** under *Audience* to open it. Google doesn't review apps that ask only for these basic scopes.
-- Everyone who signs up can ask questions, which uses your LLM budget.
+- Everyone who signs up can ask questions, which uses your LLM budget. The limits below cap it.
+
+**Question limits and blocking:** also in `access.toml`, and applied on the next click.
+- Everyone but admins has a number of questions a day: 20 for each sign-up, 100 for each listed member, and 200 for all sign-ups together, since one person can make several Google accounts. Anyone can ask at most 5 a minute. Change them under `[limits]`, or give one person their own with `daily_questions = 300`.
+- People see how many they have left under their name. Admins see **Questions today** in the sidebar, busiest first.
+- `blocked = ["someone@gmail.com"]` at the top of the file shuts someone out, even if they're listed.
+- Counts are kept in `.usage.db` (not in git). A day runs from midnight to midnight on the computer running the app.
 
 **How permissions work:** folders under `data/` are groups. `data/hr/…` is for the group `hr`; `data/public/…` is for everyone signed in; files directly in `data/` (in no folder) are for admins only. Admins see everything and are the only ones who can upload, add web pages, remove documents and rescan. Each person's chats are their own.
 
@@ -150,8 +157,10 @@ Publishing the app removes the test-user list. Google doesn't review apps that a
 | `Error 403: org_internal` | The audience is *Internal*: use a Workspace account, or switch to *External* |
 | `Error 401: invalid_client` | The Client ID or secret is mistyped, or belongs to another client |
 | "… isn't on the access list" | Google signed you in, but that email isn't in `access.toml` |
+| "Your access to CiteRAG has been removed" | That email is in `blocked` in `access.toml` |
+| "… belongs at the top of the file" | In TOML, a line under `[limits]` or `[[users]]` belongs to that section. Move `blocked` or `open_registration` above them. |
 
-The [Phase 13 build log](ai_agents/13-access.md) explains the design and the leak tests.
+The [Phase 13 build log](ai_agents/13-access.md) explains the design and the leak tests, and the [Phase 16 build log](ai_agents/16-limits.md) explains the limits.
 
 ## Using the command line
 
@@ -193,6 +202,7 @@ All settings live in `citerag/config.py` and can be overridden in `.env`. The on
 | `CITERAG_INJECTION_SCREEN` | `1` | `0` turns off the prompt-injection screen (passages are then never held back) |
 | `CITERAG_INJECTION_THRESHOLD` | `0.99` | How sure the detector must be before a passage is held back; changing it re-screens every file on the next index |
 | `CITERAG_MASK_PRIVATE` | `1` | `0` shows phone, ID, bank and card numbers to members in full |
+| `CITERAG_MAX_QUESTION_CHARS` | `2000` | Longest question accepted. The daily limits are in `access.toml`. |
 | `CITERAG_CHUNK_SIZE` | `384` | Tokens per chunk (changing it re-embeds everything on the next index) |
 | `CITERAG_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | Changing it needs `python -m citerag.store data/ --reset` |
 
@@ -230,7 +240,7 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 .venv/bin/python -m pytest
 ```
 
-351 tests:
+387 tests:
 - **Fakes stand in for most models.** The LLM, sign-in and most of the search and checking models are faked, so no API key is needed. The UI tests run the real Streamlit app headless.
 - **Some tests use real models.** The parsing and OCR tests run Docling and RapidOCR for real, one index test loads the embedding model, and one chunker test loads its tokenizer. They download about 500 MB on the first run and work offline after that.
 - **Two tests read the evaluation documents in `data/`** and are skipped when those aren't there.
@@ -255,6 +265,7 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 | `citerag/chats.py` | Save and reopen chats (`.chats/`, one folder per user when sign-in is on) |
 | `citerag/auth.py` | Google sign-in through Streamlit (which verified email is signed in) |
 | `citerag/access.py` | Who may read which documents (`access.toml`), and the search that enforces it |
+| `citerag/usage.py` | Count each person's questions for the limits in `access.toml` (`.usage.db`) |
 | `citerag/screen.py` | Screen passages for prompt injection when they are indexed (rules and a local detector model) |
 | `citerag/privacy.py` | Find and mask phone, ID, bank and card numbers |
 | `citerag/chunker.py` | Split pages into chunks with stable IDs |
@@ -293,12 +304,13 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 - **The prompt-injection screen misses some attacks.** It caught 88% of 120 planted attacks. It misses text spelled out letter by letter, leetspeak, base64, and some politely worded demands, so the model's instruction to treat documents as data is still the last line of defence.
   - It holds back a whole passage, so useful text next to an attack is held back too.
   - Common footers such as "Do not reply to this email" can raise a false alarm. None of the 162 real passages tested did.
+- **Question limits count questions, not cost:** a long answer costs more than a short one. The sign-ups' shared daily pool limits what throwaway accounts can use, but one determined person can still use it up for the day. Members keep their own allowance.
 - **Private data is found by patterns:** names and addresses aren't detected. Numbers in formats other than Nepal's are found when written with a "+" country code or next to their label ("Passport No.", "Account").
 
 ## Build log
 
 The project was built in phases, each with its own write-up of what was done, why, and what was measured:
 
-0. Setup · 1. Loaders · 2. Chunking · 3. Embeddings and index · 4. Retrieval · 5. Cited answers · 6. Citation checks · 7. Web app · 8. Evaluation and tuning · 9. Layout-aware PDF parsing
+0. Setup · 1. Loaders · 2. Chunking · 3. Embeddings and index · 4. Retrieval · 5. Cited answers · 6. Citation checks · 7. Web app · 8. Evaluation and tuning · 9. Layout-aware PDF parsing · 10. OCR · 11. More file formats · 12. Follow-up questions and saved chats · 13. Sign-in and permissions · 14. Tests on GitHub · 15. Prompt-injection screening and private-data masking · 16. Question limits and blocking
 
 See [`ai_agents/README.md`](ai_agents/README.md) and the dated [`ai_agents/CHANGELOG.md`](ai_agents/CHANGELOG.md).

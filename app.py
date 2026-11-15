@@ -9,6 +9,10 @@ Sign-in (Phase 13): with Google sign-in set up in .streamlit/secrets.toml,
 only the people in access.toml get in, each sees only their groups'
 documents (folders under data/), and only admins manage documents. Without
 it, the app is a local single-user tool, as before.
+
+Limits (Phase 16): with sign-in, everyone but admins has a number of
+questions a day and a minute (access.toml [limits]), and anyone in
+`blocked` is shut out.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from citerag.loaders import SUPPORTED_EXTENSIONS, LoaderError, load_dir, load_fi
 from citerag.retriever import Retriever
 from citerag.screen import default_screener
 from citerag.store import EmbeddingMismatchError, Store
+from citerag.usage import NO_LIMIT, Allowance, Quota, Usage, UsageError
 from citerag.validator import Validator
 
 PROVIDERS = {"gemini": "Gemini (free tier)", "anthropic": "Claude"}
@@ -97,8 +102,11 @@ def flash(kind: str, message: str) -> None:
 # -- sign-in -------------------------------------------------------------------------
 
 
-def current_user() -> User:
-    """Who is using the app; stops the page with a sign-in or "no access" screen if nobody may."""
+def current_user() -> tuple[User, Quota]:
+    """Who is using the app, and how many questions they may ask.
+
+    Stops the page with a sign-in, "no access" or "access removed" screen if nobody may use it.
+    """
     try:
         signing_in = auth.configured()
     except auth.AuthConfigError as e:  # broken, not absent: stop rather than open without sign-in
@@ -107,7 +115,7 @@ def current_user() -> User:
                  "Fix `.streamlit/secrets.toml`, then restart the app.")
         st.stop()
     if not signing_in:
-        return LOCAL_USER
+        return LOCAL_USER, NO_LIMIT
     email = auth.identity()
     if email is None:
         st.title("CiteRAG")
@@ -115,12 +123,18 @@ def current_user() -> User:
         st.button("Sign in with Google", type="primary", on_click=auth.sign_in)
         st.stop()
     try:
-        user = policy().resolve(email)  # with open registration, an unlisted email is a public user
+        pol = policy()
     except AccessError as e:
         st.title("CiteRAG")
         st.error(f"Sign-in is set up, but the access list has a problem: {e}")
         st.button("Sign out", on_click=auth.sign_out)
         st.stop()
+    if pol.is_blocked(email):  # checked on every click, so a block applies at once (Phase 16)
+        st.title("CiteRAG")
+        st.error("Your access to CiteRAG has been removed. If you think that's a mistake, contact the admin.")
+        st.button("Sign out", on_click=auth.sign_out)
+        st.stop()
+    user = pol.resolve(email)  # with open registration, an unlisted email is a public user
     if user is None:
         st.title("CiteRAG")
         st.error(f"{email} isn't on the access list. Ask an admin to add you.")
@@ -129,7 +143,7 @@ def current_user() -> User:
     if st.session_state.get("signed_in_as") != email:  # once per browser session, not on every rerun
         Registrations().seen(email)
         st.session_state.signed_in_as = email
-    return user
+    return user, pol.quota(user)
 
 
 def masker(user: User):
@@ -170,6 +184,37 @@ def waiting_users() -> None:
         st.caption("Open registration is off, so they can't sign in until they're listed.")
 
 
+def questions_today() -> None:
+    """Admins: how many questions each person has asked today, busiest first (Phase 16)."""
+    try:
+        pol = policy()
+        usage = Usage()
+        rows, shared = usage.today(), usage.shared_today()
+    except (AccessError, UsageError):
+        st.caption("Today's question counts can't be read.")
+        return
+    with st.expander(f"Questions today ({sum(n for _, n in rows)})"):  # shown even at 0, so admins know it's there
+        if not rows:
+            st.caption("Nobody has asked a question yet today.")
+        elif pol.open_registration:
+            st.caption(f"Sign-ups together: {shared} of {pol.limits.public_total}.")
+        for email, n in rows:
+            if pol.is_blocked(email):
+                note = f"{n}, blocked"
+            else:
+                daily = pol.quota(pol.user(email) or User(email, listed=False)).daily
+                note = f"{n}, no limit" if daily is None else f"{n} of {daily}"
+            st.markdown(f"{ui.escape_md(email)}  \n:gray[{note}]")
+        st.caption("Limits are in access.toml: [limits] for everyone, daily_questions for one person, "
+                   "blocked to shut someone out.")
+
+
+def show_left(slot, allowance: Allowance) -> None:
+    """The "questions left today" line under the signed-in name."""
+    if slot is not None and allowance.daily is not None and allowance.left is not None:
+        slot.caption(f"{allowance.left} of {allowance.daily} question{'s' * (allowance.daily != 1)} left today")
+
+
 def chats_folder(user: User) -> str:
     # The local user keeps the chats saved before sign-in existed; each signed-in user has their own folder.
     return str(config.CHATS_DIR if user is LOCAL_USER else config.CHATS_DIR / user.key)
@@ -178,11 +223,14 @@ def chats_folder(user: User) -> str:
 # -- sidebar -------------------------------------------------------------------------
 
 
-def sidebar(store: Store, user: User) -> dict:
+def sidebar(store: Store, user: User, allowance: Allowance) -> dict:
+    left_slot = None  # "questions left today": filled below, and updated after a question
     with st.sidebar:
         if user is not LOCAL_USER:
             role = " · admin" if user.admin else "" if user.listed else " · public documents only"
             st.caption(f"Signed in as {ui.escape_md(user.email)}{role}")
+            left_slot = st.empty()
+            show_left(left_slot, allowance)
             if not user.listed:
                 st.caption("You can read the public documents. An admin can add you to a group for more.")
             st.button("Sign out", on_click=auth.sign_out, width="stretch")
@@ -206,6 +254,7 @@ def sidebar(store: Store, user: User) -> dict:
             held_back_passages(flagged)
         if user.admin and user is not LOCAL_USER:
             waiting_users()
+            questions_today()
         if user.admin:
             manage_documents(store, user)
 
@@ -228,8 +277,8 @@ def sidebar(store: Store, user: User) -> dict:
                            help="Remove statements that fail the checks. The answer appears once it "
                                 "has been checked instead of streaming.")
         chats_section(user)
-    return {"provider": provider, "sources": sources or None, "k": k,
-            "validate": validate, "strict": strict and validate, "documents": list(docs)}
+    return {"provider": provider, "sources": sources or None, "k": k, "validate": validate,
+            "strict": strict and validate, "documents": list(docs), "left_slot": left_slot}
 
 
 def manage_documents(store: Store, user: User) -> None:
@@ -357,6 +406,19 @@ def ask(question: str, settings: dict, retriever, validator: Validator, mask=Non
     return answer
 
 
+def take_question(question: str, user: User, quota: Quota, usage: Usage | None, left_slot) -> Allowance | None:
+    """Count the question against the user's limits (Phase 16); None, with the reason shown, if it can't be asked."""
+    if len(question) > config.MAX_QUESTION_CHARS:  # the box stops typing there; this catches anything sent past it
+        st.warning(f"That question is too long: keep it to {config.MAX_QUESTION_CHARS:,} characters or fewer.")
+        return None
+    taken = usage.take(user.email, quota) if usage else Allowance(True)
+    if not taken.allowed:
+        st.warning(taken.message)
+        return None
+    show_left(left_slot, taken)
+    return taken
+
+
 def show_answer(answer: Answer, turn: int, user: User) -> None:
     mask = masker(user)
     st.markdown(ui.answer_markdown(answer, mask=mask), unsafe_allow_html=True)
@@ -415,7 +477,8 @@ def show_answer(answer: Answer, turn: int, user: User) -> None:
 
 # -- page ----------------------------------------------------------------------------
 
-user = current_user()  # stops here with a sign-in screen when sign-in is set up and nobody is signed in
+user, quota = current_user()  # stops here with a sign-in screen when sign-in is set up and nobody is signed in
+usage = None if user is LOCAL_USER else Usage()  # the local user is never counted: there's nobody to limit
 
 if "chat" not in st.session_state:  # first run of this browser session: reopen the chat in the address
     st.session_state.chat = chat_store(chats_folder(user)).load(st.query_params.get("chat", "")) or Chat()
@@ -431,7 +494,8 @@ except EmbeddingMismatchError as e:
     st.error(str(e))
     st.stop()
 
-settings = sidebar(store, user)
+allowance = usage.status(user.email, quota) if usage else Allowance(True)
+settings = sidebar(store, user, allowance)
 for kind, message in st.session_state.flash:
     getattr(st, kind)(message)
 st.session_state.flash = []
@@ -455,17 +519,25 @@ for i, turn in enumerate(chat.turns):
     show_answer(turn.answer, i, user)
     st.divider()
 
-if question := st.chat_input("Ask a question about your documents", disabled=not documents):
+if documents and not allowance.allowed:  # out of questions for today (Phase 16)
+    st.info(allowance.message)
+
+if question := st.chat_input("Ask a question about your documents", disabled=not documents or not allowance.allowed,
+                             max_chars=config.MAX_QUESTION_CHARS):
     st.markdown(f"**{ui.escape_md(question)}**")
-    search = question
-    if chat.turns and is_follow_up(question):
-        with st.spinner("Reading the follow-up…"):
-            search = standalone_question(question, chat.history(), backend(settings["provider"]))
-        if search != question:
-            st.caption(f"Searched for: {ui.escape_md((masker(user) or str)(search))}")
-    answer = ask(search, settings, scoped, validator, mask=masker(user))
-    if answer is not None:
-        chat.turns.append(Turn(question, search, answer))
-        chat_store(chats_folder(user)).save(chat)
-        open_chat(chat)
-        show_answer(answer, len(chat.turns) - 1, user)
+    if taken := take_question(question, user, quota, usage, settings["left_slot"]):
+        search = question
+        if chat.turns and is_follow_up(question):
+            with st.spinner("Reading the follow-up…"):
+                search = standalone_question(question, chat.history(), backend(settings["provider"]))
+            if search != question:
+                st.caption(f"Searched for: {ui.escape_md((masker(user) or str)(search))}")
+        answer = ask(search, settings, scoped, validator, mask=masker(user))
+        if answer is None and usage:  # failed on our side (the AI service, say): the question doesn't count
+            usage.give_back(taken.ticket)
+            show_left(settings["left_slot"], usage.status(user.email, quota))
+        if answer is not None:
+            chat.turns.append(Turn(question, search, answer))
+            chat_store(chats_folder(user)).save(chat)
+            open_chat(chat)
+            show_answer(answer, len(chat.turns) - 1, user)

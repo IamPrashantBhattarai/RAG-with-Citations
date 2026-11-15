@@ -11,6 +11,7 @@ from citerag import auth, config, privacy, ui
 from citerag.access import Registrations, toml_entry
 from citerag.generator import GenerationError
 from citerag.store import Hit, IndexReport
+from citerag.usage import Quota, Usage
 from citerag.chats import Chat, ChatStore, Turn
 from citerag.validator import Check, Validation, Validator
 from tests.test_validator import HITS, FakeBackend, FakeNLI, answer, validate
@@ -227,6 +228,7 @@ class ChatBackend(FakeBackend):
 def app(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "CHATS_DIR", tmp_path / "chats")
     monkeypatch.setattr(config, "REGISTRATIONS_FILE", tmp_path / "registrations.json")  # never the real file
+    monkeypatch.setattr(config, "USAGE_FILE", tmp_path / "usage.db")  # nor the real question counts
     monkeypatch.setattr(FakeRetriever, "calls", [])
     monkeypatch.setattr("citerag.auth.configured", lambda: False)  # local mode, whatever secrets.toml says
 
@@ -489,3 +491,101 @@ def test_admins_see_who_signed_up_with_a_block_to_paste(app, tmp_path):
 def test_without_open_registration_an_unlisted_user_is_still_turned_away(app):
     at = app(docs=GROUP_DOCS, access=ACCESS, email="newcomer@gmail.com")
     assert "isn't on the access list" in at.error[0].value and not at.chat_input
+
+
+# -- limits and blocking (Phase 16) -------------------------------------------------
+
+def limits(member=2, public=1, per_minute=5, blocked="[]"):
+    return f"open_registration = true\nblocked = {blocked}\n\n[limits]\nmember = {member}\npublic = {public}\n" \
+           f"per_minute = {per_minute}\n" + ACCESS
+
+
+def sidebar_captions(at):
+    return [c.value for c in at.sidebar.caption]
+
+
+def test_a_blocked_person_is_shut_out_even_when_listed(app, tmp_path):
+    for email in ("asha@example.com", "spammer@gmail.com"):  # listed with a group; a sign-up
+        at = app(docs=GROUP_DOCS, access=limits(blocked='["asha@example.com", "Spammer@Gmail.com"]'), email=email)
+        assert "access to CiteRAG has been removed" in at.error[0].value
+        assert not at.chat_input and [b.label for b in at.button] == ["Sign out"] and not at.sidebar.markdown
+    assert FakeRetriever.calls == [] and not (tmp_path / "registrations.json").exists()  # not recorded either
+
+
+def test_a_member_sees_what_is_left_and_stops_at_the_limit(app):
+    at = app(docs=GROUP_DOCS, access=limits(member=2), email="asha@example.com")
+    assert "2 of 2 questions left today" in sidebar_captions(at)
+    at = at.chat_input[0].set_value("What are the pass marks?").run()
+    assert "1 of 2 questions left today" in sidebar_captions(at)
+    at = at.chat_input[0].set_value("And the full marks?").run()
+    assert "0 of 2 questions left today" in sidebar_captions(at) and len(FakeRetriever.calls) == 2
+    at = at.run()  # the next click
+    assert at.chat_input[0].disabled
+    assert at.info[0].value == "You've used today's 2 questions. They reset at midnight."
+
+
+def test_too_many_questions_in_a_minute_are_refused_before_any_search(app):
+    at = app(docs=GROUP_DOCS, access=limits(member=100, per_minute=1), email="asha@example.com")
+    at = at.chat_input[0].set_value("What are the pass marks?").run()
+    at = at.chat_input[0].set_value("And the full marks?").run()
+    assert at.warning[0].value.startswith("That's 1 question in a minute. Try again in ")
+    assert len(FakeRetriever.calls) == 1 and "99 of 100 questions left today" in sidebar_captions(at)
+
+
+def test_sign_ups_have_their_own_smaller_limit(app):
+    at = app(docs=GROUP_DOCS, access=limits(public=1), email="newcomer@gmail.com")
+    assert "1 of 1 question left today" in sidebar_captions(at)
+    at = at.chat_input[0].set_value("What are the pass marks?").run().run()
+    assert at.chat_input[0].disabled and "You've used today's 1 question." in at.info[0].value
+
+
+def test_a_question_that_fails_on_our_side_is_given_back(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(FakeRetriever, "retrieve", lambda self, q, k, sources, held_back=None: PUBLIC_HITS)
+    at = app(docs=GROUP_DOCS, access=limits(member=2), email="asha@example.com", backend=FailingBackend())
+    at = at.chat_input[0].set_value("What are the pass marks?").run()
+    assert "Free-tier limit" in at.error[0].value
+    assert "2 of 2 questions left today" in sidebar_captions(at)
+    assert Usage(tmp_path / "usage.db").today() == []
+
+
+def test_a_question_too_long_is_refused_and_not_counted(app, tmp_path):
+    at = app(docs=GROUP_DOCS, access=limits(member=2), email="asha@example.com")
+    at = at.chat_input[0].set_value("x" * (config.MAX_QUESTION_CHARS + 1)).run()  # sent past the box's own limit
+    assert "too long" in at.warning[0].value and FakeRetriever.calls == []
+    assert Usage(tmp_path / "usage.db").today() == []
+
+
+def test_admins_see_questions_today_even_before_anyone_asks(app):
+    at = app(docs=GROUP_DOCS, access=limits(), email="boss@example.com")
+    [today] = [e for e in at.sidebar.expander if e.label.startswith("Questions today")]
+    assert today.label == "Questions today (0)"
+    assert "Nobody has asked a question yet today." in sidebar_captions(at)
+    member = app(docs=GROUP_DOCS, access=limits(), email="asha@example.com")
+    assert not any(e.label.startswith("Questions today") for e in member.sidebar.expander)
+
+
+def test_admins_have_no_limit_and_see_questions_today(app, tmp_path):
+    counts = Usage(tmp_path / "usage.db")
+    for _ in range(3):
+        counts.take("newcomer@gmail.com", Quota(daily=1000, shared=200))
+    counts.take("asha@example.com", Quota(daily=2))
+    counts.take("spammer@gmail.com", Quota(daily=1000, shared=200))
+    at = app(docs=GROUP_DOCS, access=limits(member=2, public=20, blocked='["spammer@gmail.com"]'),
+             email="boss@example.com")
+    assert not any("left today" in c for c in sidebar_captions(at))
+    [today] = [e for e in at.sidebar.expander if e.label.startswith("Questions today")]
+    assert today.label == "Questions today (5)"
+    shown = sidebar_text(at)
+    assert "newcomer@gmail\\.com  \n:gray[3 of 20]" in shown and "asha@example\\.com  \n:gray[1 of 2]" in shown
+    assert "spammer@gmail\\.com  \n:gray[1, blocked]" in shown
+    assert "Sign-ups together: 4 of 200." in sidebar_captions(at)
+    at = at.chat_input[0].set_value("What are the pass marks?").run()
+    assert not at.warning and len(FakeRetriever.calls) == 1
+    assert ("boss@example.com", 1) in counts.today()  # counted, never refused
+
+
+def test_the_local_app_without_sign_in_counts_nothing(app, tmp_path):
+    at = app()
+    at = at.chat_input[0].set_value("What are the pass marks?").run()
+    assert not at.exception and not any("left today" in c for c in sidebar_captions(at))
+    assert not (tmp_path / "usage.db").exists()

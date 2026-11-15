@@ -19,10 +19,30 @@
 # publish the app (Google Auth Platform > Audience) to open it.
 open_registration = false
 
+# Blocked: these people can't sign in, whatever else this file says (even if
+# listed below). Their next click shows "Your access has been removed".
+# Like open_registration, it must stay above [limits] and the first [[users]].
+blocked = []   # e.g. ["someone@gmail.com"]
+
+# Question limits (Phase 16). Each question uses your AI budget (or the free
+# Gemini quota the whole app shares), so everyone but admins has a limit.
+# A day runs from midnight to midnight on the computer running the app.
+# Admins see "Questions today" in the sidebar. Leave a line out for its default.
+[limits]
+public = 20         # per day, for each sign-up not listed below
+member = 100        # per day, for each listed user (give one person more with daily_questions)
+public_total = 200  # per day, for all sign-ups together (one person can make several Google accounts)
+per_minute = 5      # for everyone but admins, to stop a script flooding the app
+
 [[users]]
 email = "admin@example.com"
-admin = true
+admin = true       # admins have no question limit
 
 [[users]]
 email = "someone@example.com"
 groups = ["hr", "finance"]
+
+[[users]]
+email = "analyst@example.com"
+groups = ["finance"]
+daily_questions = 300   # their own daily limit instead of [limits] member

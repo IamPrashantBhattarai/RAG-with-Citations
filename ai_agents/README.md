@@ -22,6 +22,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | [13-access.md](13-access.md) | Google sign-in and folder-based permissions enforced at search time; per-user chats; leak test | ✅ Done (Google client set up 2026-11-11) |
 | [14-ci.md](14-ci.md) | Tests on GitHub for every push: clean Linux machine, exact versions from `requirements.lock`, CPU-only PyTorch, cached models | ✅ Done (first run passed 2026-11-13) |
 | [15-screening.md](15-screening.md) | Prompt-injection screening at indexing (rules + Wolf Defender, benchmarked against ProtectAI), quarantine, hidden-text removal; private-data masking for non-admins | ✅ Done |
+| [16-limits.md](16-limits.md) | Question limits per person, per minute and for all sign-ups together (counted in SQLite, race-tested); blocking in `access.toml` | ✅ Done |
 | [CHANGELOG.md](CHANGELOG.md) | Dated list of every change | Ongoing |
 
 
@@ -45,6 +46,7 @@ A record of every step taken to build this project: **what** was done and **why*
 | 13 | Sign-in (Google) and permissions (folders = groups) | ✅ |
 | 14 | Tests on GitHub for every push (CI) | ✅ |
 | 15 | Prompt-injection screening and private-data masking | ✅ |
+| 16 | Question limits and blocking | ✅ |
 
 ## Key decisions
 
@@ -71,3 +73,8 @@ A record of every step taken to build this project: **what** was done and **why*
     - Wolf was chosen on attacks hand-written for this project and planted in the real passages: 88% caught, with 0 of 162 real passages flagged. ProtectAI's DeBERTa caught 23% and flagged 43% of NotInject.
     - Text hidden from readers is removed (styled-invisible HTML, in emails too) or made visible (Unicode tag characters) first.
     - Phone, ID, bank and card numbers are masked for non-admins by digit, keeping the text's length, so quotes and highlights stay in place. ([15-screening.md](15-screening.md))
+20. **Questions are limited per person and people can be blocked, all in `access.toml`.**
+    - The defaults are 20 questions a day per sign-up, 100 per member, 200 for all sign-ups together (one person can make several Google accounts) and 5 a minute. Admins have no limit.
+    - Counts are kept by Google-verified email in SQLite, not in the page, which forgets on refresh. The write lock is taken before counting: 20 questions sent at once against a limit of 10 let exactly 10 through.
+    - A question that fails on our side is given back. If the counts can't be kept, limited people are paused.
+    - `blocked = [...]` beats everything else and applies on the next click. ([16-limits.md](16-limits.md))

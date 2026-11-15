@@ -152,6 +152,8 @@ What came up along the way:
 - **Anyone with a Google account** who can reach the app can now read `data/public/` and ask questions, which spends the LLM budget. The app still listens only on this computer. Before it's on a server, it needs per-user limits.
 - **No block list yet:** to stop one person, turn open registration off. Admins can't remove someone from the log either.
 
+Phase 16 (2026-11-15) adds what open registration needed next: question limits per person and for all sign-ups together, and `blocked = [...]`. See [16-limits.md](16-limits.md).
+
 ## Step 4 — Evaluation: does anything leak?
 
 `python -m eval.permissions`: all 126 eval questions, searched as four restricted users through the app's real search (dense + keyword + reranker) inside `ScopedRetriever`, over the 8 evaluation documents. No LLM.

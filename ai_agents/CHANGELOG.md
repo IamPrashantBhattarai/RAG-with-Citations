@@ -2,6 +2,21 @@
 
 Newest first. Each entry links to the phase doc with the full reasoning.
 
+## 2026-11-15
+
+### Added — Phase 16: Question limits and blocking ([16-limits.md](16-limits.md))
+- **Blocking:** `blocked = [...]` in `access.toml` shuts people out on their next click, even if they're listed. Blocked sign-ins aren't recorded, and blocked people don't show as waiting to be listed.
+- **Limits:** `[limits]` in `access.toml`, with defaults of 20 questions a day per sign-up, 100 per member, 200 a day for all sign-ups together, and 5 a minute for anyone. Admins have no limit, and `daily_questions` gives one person their own.
+- **Counting** (`citerag/usage.py`, new): per Google-verified email, in a SQLite file (`.usage.db`, git-ignored). The write lock is taken before counting, so questions sent at the same moment can't slip past a limit.
+  - A question counts when it's sent, and is given back if answering fails on our side.
+  - If the counts can't be kept, limited people are paused and admins carry on.
+- **The page:** "N of M questions left today" under the name; when they run out, the box turns off with the reason. Admins get a "Questions today" list, busiest first, shown even before anyone has asked (the first version hid it at 0, and the user couldn't find it). Questions over 2,000 characters are refused (`CITERAG_MAX_QUESTION_CHARS`).
+- **Misplaced settings explained:** `access.toml` now says when `blocked` or `open_registration` sits under `[limits]` or a user, where TOML would otherwise attach it to that section silently.
+- **Measured:** 0.58 ms to count a question with 5,000 already counted that day. 20 questions sent at once against a limit of 10: exactly 10 allowed, 0 paused.
+- **Fixed during the work:** a new usage file created by many sessions at once could pause a question ("database is locked"). The table is now set up once per process.
+- The user's `access.toml` has `blocked = []`, the `[limits]` defaults, and a trial `daily_questions = 2` on a member account to delete after trying it.
+- Tests: `test_usage.py` (11), +16 `test_access.py`, +9 `test_ui.py`. 387 passing.
+
 ## 2026-11-13
 
 ### Added — Open registration ([13-access.md](13-access.md#open-registration-2026-11-13))

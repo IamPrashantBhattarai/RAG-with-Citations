@@ -55,6 +55,10 @@ ACCESS_FILE = Path(os.getenv("CITERAG_ACCESS_FILE", ROOT_DIR / "access.toml"))
 CHATS_DIR = Path(os.getenv("CITERAG_CHATS_DIR", ROOT_DIR / ".chats"))
 # Who has signed in and when (open registration): it lists people's emails, keep it private.
 REGISTRATIONS_FILE = Path(os.getenv("CITERAG_REGISTRATIONS_FILE", ROOT_DIR / ".registrations.json"))
+# Questions asked, per person, for the limits in access.toml (Phase 16). Lists emails: keep it private.
+USAGE_FILE = Path(os.getenv("CITERAG_USAGE_FILE", ROOT_DIR / ".usage.db"))
+# Longest question accepted, in characters: a long paste costs more on every call to the AI.
+MAX_QUESTION_CHARS = int(os.getenv("CITERAG_MAX_QUESTION_CHARS", "2000"))
 # Parsed pages, keyed by file content and parser settings, so unchanged files aren't parsed again.
 PARSE_CACHE_DIR = Path(os.getenv("CITERAG_PARSE_CACHE_DIR", ROOT_DIR / ".cache" / "parsed"))
 
