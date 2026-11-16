@@ -231,6 +231,11 @@ def app(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "USAGE_FILE", tmp_path / "usage.db")  # nor the real question counts
     monkeypatch.setattr(FakeRetriever, "calls", [])
     monkeypatch.setattr("citerag.auth.configured", lambda: False)  # local mode, whatever secrets.toml says
+    # Fake keys, whatever .env says: without them the sidebar warns "No API key found", which made
+    # "no warning" checks pass on a machine with a .env and fail on GitHub's, which has none.
+    # The backends are fakes, so nothing is ever sent.
+    for name in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.setenv(name, "test-key-not-real")
 
     def run(reply="The pass marks are 45 [1]. Unit VII covers PHP [2].", docs=None, backend=None,
             access=None, email=None):
@@ -256,6 +261,14 @@ def app(monkeypatch, tmp_path):
 def test_empty_index_asks_for_documents(app):
     at = app(docs={})
     assert "Add a PDF" in at.info[0].value and at.chat_input[0].disabled
+
+
+def test_a_missing_api_key_is_pointed_out(app, monkeypatch):
+    for name in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    at = app()
+    assert at.sidebar.warning[0].value.startswith("No API key found: set ")
+    assert at.sidebar.warning[0].value.endswith(" in .env and restart.")
 
 
 def test_loading_the_models_draws_nothing_on_the_page(app, monkeypatch):

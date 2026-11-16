@@ -2,11 +2,19 @@
 
 Newest first. Each entry links to the phase doc with the full reasoning.
 
+## 2026-11-16
+
+### Fixed — the real cause of the failing GitHub run ([16-limits.md](16-limits.md#the-first-push-failed-on-github-2026-11-15-found-2026-11-16))
+- The failed tests are now listed on the commit. They named two admin page tests that checked for "no warning". The sidebar warns "No API key found" when no key is set: the local `.env` has keys and GitHub has none. The cause was not SQLite, as guessed on 2026-11-15. The SQLite change stays, since it makes the counter behave the same on every machine.
+- The page-test fixture now sets fake API keys, so the tests don't depend on a developer's `.env`. A new test checks that the warning appears when no key is set.
+- CI: the failure list was empty at first, because `-rs` keeps failed tests out of pytest's summary. Now `-rfEs`.
+- Tests: 389 passing, with and without API keys in the environment.
+
 ## 2026-11-15
 
-### Fixed — the Phase 15/16 push failed on GitHub ([16-limits.md](16-limits.md#the-first-push-failed-on-github-2026-11-15))
+### Fixed — the Phase 15/16 push failed on GitHub ([16-limits.md](16-limits.md#the-first-push-failed-on-github-2026-11-15-found-2026-11-16))
 - The tests passed locally, including with UTC time and without the detector model, but failed on GitHub's Linux machine. The log is only shown to signed-in users, so the cause isn't confirmed.
-- Most likely cause: how often SQLite's busy timeout retries depends on how it was compiled, and it can be once a second. The question counter now waits for the write lock itself, every 2–20 ms for up to 10 s. A new test checks that a question waits about 0.3 s, not seconds, behind another one.
+- Guessed cause (wrong; see 2026-11-16): how often SQLite's busy timeout retries depends on how it was compiled, and it can be once a second. The question counter now waits for the write lock itself, every 2–20 ms for up to 10 s. A new test checks that a question waits about 0.3 s, not seconds, behind another one.
 - CI ([14-ci.md](14-ci.md)): failed tests and their errors are now listed on the commit's checks, readable without signing in.
   - The first version listed nothing: `-rs` keeps failed tests out of pytest's summary. Now `-rfEs`.
 - Tests: 388 passing.
