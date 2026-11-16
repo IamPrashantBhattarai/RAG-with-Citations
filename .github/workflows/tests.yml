@@ -50,7 +50,7 @@ jobs:
       - name: Run the tests
         run: |
           set -o pipefail
-          python -m pytest -q -rs | tee pytest.log
+          python -m pytest -q -rfEs | tee pytest.log  # -r f E s: list failures, errors and skips at the end
 
       # The full log is only shown to people signed in to GitHub. This puts each
       # failed test's name and error on the commit's checks, where anyone can read it.
