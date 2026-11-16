@@ -240,7 +240,7 @@ Details and every table: [`ai_agents/08-evaluation.md`](ai_agents/08-evaluation.
 .venv/bin/python -m pytest
 ```
 
-387 tests:
+388 tests:
 - **Fakes stand in for most models.** The LLM, sign-in and most of the search and checking models are faked, so no API key is needed. The UI tests run the real Streamlit app headless.
 - **Some tests use real models.** The parsing and OCR tests run Docling and RapidOCR for real, one index test loads the embedding model, and one chunker test loads its tokenizer. They download about 500 MB on the first run and work offline after that.
 - **Two tests read the evaluation documents in `data/`** and are skipped when those aren't there.

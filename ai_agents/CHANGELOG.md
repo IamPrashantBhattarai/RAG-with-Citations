@@ -4,6 +4,12 @@ Newest first. Each entry links to the phase doc with the full reasoning.
 
 ## 2026-11-15
 
+### Fixed — the Phase 15/16 push failed on GitHub ([16-limits.md](16-limits.md#the-first-push-failed-on-github-2026-11-15))
+- The tests passed locally, including with UTC time and without the detector model, but failed on GitHub's Linux machine. The log is only shown to signed-in users, so the cause isn't confirmed.
+- Most likely cause: how often SQLite's busy timeout retries depends on how it was compiled, and it can be once a second. The question counter now waits for the write lock itself, every 2–20 ms for up to 10 s. A new test checks that a question waits about 0.3 s, not seconds, behind another one.
+- CI ([14-ci.md](14-ci.md)): failed tests and their errors are now listed on the commit's checks, readable without signing in.
+- Tests: 388 passing.
+
 ### Added — Phase 16: Question limits and blocking ([16-limits.md](16-limits.md))
 - **Blocking:** `blocked = [...]` in `access.toml` shuts people out on their next click, even if they're listed. Blocked sign-ins aren't recorded, and blocked people don't show as waiting to be listed.
 - **Limits:** `[limits]` in `access.toml`, with defaults of 20 questions a day per sign-up, 100 per member, 200 a day for all sign-ups together, and 5 a minute for anyone. Admins have no limit, and `daily_questions` gives one person their own.

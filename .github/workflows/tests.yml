@@ -48,4 +48,12 @@ jobs:
           restore-keys: models-
 
       - name: Run the tests
-        run: python -m pytest -q -rs
+        run: |
+          set -o pipefail
+          python -m pytest -q -rs | tee pytest.log
+
+      # The full log is only shown to people signed in to GitHub. This puts each
+      # failed test's name and error on the commit's checks, where anyone can read it.
+      - name: List failed tests on the commit
+        if: failure()
+        run: grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-400 | sed 's/^/::error title=Test failed::/' || true

@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import logging
 import math
+import random
 import sqlite3
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
@@ -32,6 +34,7 @@ from citerag import config
 log = logging.getLogger(__name__)
 
 KEEP_SECONDS = 2 * 24 * 3600  # older questions are deleted: only today and the last minute are ever counted
+LOCK_WAIT_SECONDS = 10  # how long a question waits for others being counted before it's paused
 PAUSED = "Questions can't be counted right now, so they're paused. Try again in a little while."
 _SCHEMA = (
     """CREATE TABLE IF NOT EXISTS questions (
@@ -186,7 +189,10 @@ class Usage:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as db:
                 self._set_up(db)
-                db.execute("BEGIN IMMEDIATE" if write else "BEGIN")  # IMMEDIATE: the write lock, before counting
+                if write:
+                    _lock_for_writing(db)
+                else:
+                    db.execute("BEGIN")
                 try:
                     yield db
                 except BaseException:
@@ -208,6 +214,26 @@ class Usage:
             for statement in _SCHEMA:
                 db.execute(statement)
             Usage._ready.add(self.path)
+
+
+def _lock_for_writing(db: sqlite3.Connection) -> None:
+    """BEGIN IMMEDIATE: take the write lock before counting, waiting while others hold it.
+
+    The waiting is done here, in steps of a few milliseconds, not by SQLite's
+    busy timeout: how often that one retries depends on how SQLite was
+    compiled, and where it can only sleep in whole seconds, 20 questions sent
+    together can wait longer than LOCK_WAIT_SECONDS and be paused.
+    """
+    db.execute("PRAGMA busy_timeout = 0")
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    while True:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e) or time.monotonic() > deadline:
+                raise
+        time.sleep(random.uniform(0.002, 0.02))  # random, so waiting sessions don't retry in step
 
 
 def _midnight(now: datetime) -> float:

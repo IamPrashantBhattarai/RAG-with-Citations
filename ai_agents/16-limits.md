@@ -1,6 +1,6 @@
 # Phase 16 — Question limits and blocking
 
-**Status:** ✅ Built (2026-11-15) · Code: `citerag/usage.py` (new), `citerag/access.py`, `citerag/config.py`, `app.py`, `access.example.toml` · Tests: `test_usage.py` (11, new), +16 `test_access.py`, +9 `test_ui.py`; 387 passing
+**Status:** ✅ Built (2026-11-15) · Code: `citerag/usage.py` (new), `citerag/access.py`, `citerag/config.py`, `app.py`, `access.example.toml` · Tests: `test_usage.py` (12, new), +16 `test_access.py`, +9 `test_ui.py`; 388 passing
 
 **Outcome in one line:** with sign-in on, everyone but admins has a number of questions a day and a minute, sign-ups share one daily pool, and anyone in `blocked` is shut out on their next click. Counting a question takes about 0.6 ms.
 
@@ -83,7 +83,7 @@ On this Mac, with 5,000 questions from 200 people already counted that day: coun
 
 ## Step 5 — Tests
 
-- `test_usage.py` (11): the daily limit counts down and resets at midnight (on a fake clock, in Nepal time), per-person counts, `status` counts nothing, the per-minute wait, the shared pool, give-back, no-limit, a limit of 0, old rows deleted, the same-moment race, and a damaged file (limited people paused, admins carry on).
+- `test_usage.py` (12): the daily limit counts down and resets at midnight (on a fake clock, in Nepal time), per-person counts, `status` counts nothing, the per-minute wait, the shared pool, give-back, no-limit, a limit of 0, old rows deleted, the same-moment race, waiting milliseconds (not seconds) for another question being counted, and a damaged file (limited people paused, admins carry on).
 - `test_access.py` (+16): blocked people kept out even when listed, blocked people not waiting, each kind of user's quota and the defaults, 12 mistakes explained (including `blocked` and `open_registration` placed under a section), and `access.example.toml` loads.
 - `test_ui.py` (+9): blocked listed user and blocked sign-up shut out (and not recorded), a member counting down to 0 and the box turned off, the per-minute refusal before any search, sign-ups' smaller limit, a failed answer given back, a question that's too long refused and not counted, and the admin's list (shown even before anyone asks).
   - The page tests count into a temporary file, never the real `.usage.db`.
@@ -94,6 +94,17 @@ In the user's `access.toml` (2026-11-15): `blocked = []`, the `[limits]` section
 1. Sign in with that account and ask 2 questions. The sidebar counts down, then the box turns off.
 2. As admin, open "Questions today" in the sidebar.
 3. Add the public-only account to `blocked`, save, and click anything in its window: "Your access has been removed."
+
+## The first push failed on GitHub (2026-11-15)
+
+The tests passed here but failed on GitHub's Linux machine (run 43697346867). Only the "Run the tests" step failed.
+- **The log couldn't be read.** GitHub shows a job's log only to people signed in, and its log API asks for admin rights. So the cause isn't confirmed.
+- **Ruled out here:** the full suite also passed with the clock in UTC and without the 1.2 GB detector model, as on GitHub.
+- **Most likely cause:** the 20-questions-at-once test. When the write lock is taken, SQLite's busy timeout retries in steps of a few milliseconds, but only where it was compiled knowing it can sleep for less than a second. Otherwise it sleeps a whole second between tries. Twenty questions retrying once a second, in step, can run past the 10-second wait and be paused. GitHub's Python builds SQLite with its configure script and no flag for this, so the build script didn't settle it.
+- **Fix, whatever the build:** `_lock_for_writing` turns SQLite's busy timeout off and does the waiting itself, every 2–20 ms at random so waiting sessions don't retry in step, for up to `LOCK_WAIT_SECONDS` (10).
+  - New test: while another connection holds the lock for 0.3 s, a question waits 0.25–0.8 s, not a second or more.
+  - 20 at once still let exactly 10 through, with 0 pauses in 5 runs.
+- **Seeing failures next time:** the workflow now lists each failed test, with its error, on the commit's checks, where anyone can read them ([14-ci.md](14-ci.md)).
 
 ## Limitations
 

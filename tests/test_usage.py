@@ -133,6 +133,19 @@ def test_questions_sent_at_the_same_moment_never_go_over_the_limit(tmp_path, mon
     assert sorted(results) == [False] * 10 + [True] * 10 and usage.today() == [("a@x.io", 10)]
 
 
+def test_a_question_waits_milliseconds_not_seconds_for_another_being_counted(tmp_path):
+    # The wait is ours, not SQLite's busy timeout, which on some builds only retries once a second.
+    usage = Usage(tmp_path / "usage.db")
+    usage.take("warm@x.io", NO_LIMIT)  # the file exists
+    holder = sqlite3.connect(tmp_path / "usage.db", isolation_level=None, check_same_thread=False)
+    holder.execute("BEGIN IMMEDIATE")  # someone else is counting a question...
+    threading.Timer(0.3, lambda: holder.execute("COMMIT")).start()  # ...for 0.3 s
+    start = time.monotonic()
+    assert usage.take("a@x.io", Quota(daily=3)).allowed
+    assert 0.25 < time.monotonic() - start < 0.8
+    holder.close()
+
+
 def test_when_the_counts_cant_be_kept_limited_people_wait_and_admins_carry_on(tmp_path):
     broken = tmp_path / "usage.db"
     broken.write_bytes(b"this is not a database" * 100)
